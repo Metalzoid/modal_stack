@@ -47,7 +47,14 @@ export function push(state, layer) {
   } else {
     commands.push({ type: "inertLayer", layerId: previousTop.id, value: true });
   }
-  commands.push({ type: "mountLayer", layerId: newLayer.id, url: newLayer.url });
+  commands.push({
+    type: "mountLayer",
+    layerId: newLayer.id,
+    url: newLayer.url,
+    depth,
+    variant: newLayer.variant,
+    dismissible: newLayer.dismissible,
+  });
   commands.push({
     type: "pushHistory",
     url: newLayer.url,
@@ -105,7 +112,14 @@ export function replaceTop(state, patch, { historyMode = "replace" } = {}) {
   return {
     state: { ...state, layers: newLayers },
     commands: [
-      { type: "morphTopLayer", layerId: next.id, url: next.url },
+      {
+        type: "morphTopLayer",
+        layerId: next.id,
+        url: next.url,
+        depth,
+        variant: next.variant,
+        dismissible: next.dismissible,
+      },
       historyCmd,
       { type: "persistSnapshot" },
     ],
@@ -190,7 +204,14 @@ export function handlePopstate(state, { historyState, locationHref }) {
     return {
       state: { ...state, layers: newLayers },
       commands: [
-        { type: "morphTopLayer", layerId: targetLayerId, url: updatedTop.url },
+        {
+          type: "morphTopLayer",
+          layerId: targetLayerId,
+          url: updatedTop.url,
+          depth: currentDepth,
+          variant: updatedTop.variant,
+          dismissible: updatedTop.dismissible,
+        },
         { type: "persistSnapshot" },
       ],
     };

@@ -68,7 +68,14 @@ describe("push", () => {
     expect(commands).toEqual([
       { type: "showDialog" },
       { type: "lockScroll" },
-      { type: "mountLayer", layerId: "L1", url: "/projects/42/edit" },
+      {
+        type: "mountLayer",
+        layerId: "L1",
+        url: "/projects/42/edit",
+        depth: 1,
+        variant: "modal",
+        dismissible: true,
+      },
       {
         type: "pushHistory",
         url: "/projects/42/edit",
@@ -167,6 +174,9 @@ describe("replaceTop", () => {
         type: "morphTopLayer",
         layerId: "L1",
         url: "/projects/42/edit/billing",
+        depth: 1,
+        variant: "modal",
+        dismissible: true,
       },
       {
         type: "replaceHistory",
@@ -310,7 +320,14 @@ describe("handlePopstate", () => {
       url: "/onboarding/step1",
     });
     expect(commands).toEqual([
-      { type: "morphTopLayer", layerId: "L1", url: "/onboarding/step1" },
+      {
+        type: "morphTopLayer",
+        layerId: "L1",
+        url: "/onboarding/step1",
+        depth: 1,
+        variant: "modal",
+        dismissible: true,
+      },
       { type: "persistSnapshot" },
     ]);
   });
