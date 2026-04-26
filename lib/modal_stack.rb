@@ -4,5 +4,9 @@ require_relative "modal_stack/version"
 
 module ModalStack
   class Error < StandardError; end
-  # Your code goes here...
+
+  TARGET_ID = "modal-stack-root"
+  REQUEST_HEADER = "X-Modal-Stack-Request"
 end
+
+require "modal_stack/engine" if defined?(::Rails::Engine)

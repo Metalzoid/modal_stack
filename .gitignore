@@ -10,6 +10,9 @@
 # rspec failure tracking
 .rspec_status
 
+# Lockfile (gem libraries should resolve against host app deps)
+Gemfile.lock
+
 # JS toolchain
 /node_modules/
 bun.lock

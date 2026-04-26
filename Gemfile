@@ -11,3 +11,7 @@ gem "rake", "~> 13.0"
 gem "rspec", "~> 3.0"
 
 gem "rubocop", "~> 1.21"
+
+gem "propshaft", "~> 1.3", group: :development
+
+gem "rails", "~> 8.1"

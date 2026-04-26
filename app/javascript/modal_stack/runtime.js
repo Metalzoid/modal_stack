@@ -2,7 +2,6 @@ export const SNAPSHOT_KEY = "modalStackSnapshot";
 export const FRAGMENT_HEADER = "X-Modal-Stack-Request";
 
 const LAYER_SELECTOR = '[data-modal-stack-target="layer"]';
-const PANEL_CLASS = "modal-stack__panel";
 
 export class BrowserRuntime {
   constructor({
@@ -51,10 +50,7 @@ export class BrowserRuntime {
     const fragment = await this.#fetchFragment(url);
     const layer = this.document.createElement("div");
     this.#applyLayerAttrs(layer, { layerId, depth, variant, dismissible });
-    const panel = this.document.createElement("div");
-    panel.className = PANEL_CLASS;
-    panel.append(...fragment.childNodes);
-    layer.appendChild(panel);
+    layer.append(...fragment.childNodes);
     this.dialog.appendChild(layer);
   }
 
@@ -63,13 +59,7 @@ export class BrowserRuntime {
     const layer = this.#topLayer();
     if (!layer) return;
     this.#applyLayerAttrs(layer, { layerId, depth, variant, dismissible });
-    let panel = layer.querySelector(`.${PANEL_CLASS}`);
-    if (!panel) {
-      panel = this.document.createElement("div");
-      panel.className = PANEL_CLASS;
-      layer.replaceChildren(panel);
-    }
-    panel.replaceChildren(...fragment.childNodes);
+    layer.replaceChildren(...fragment.childNodes);
   }
 
   unmountTopLayer() {
