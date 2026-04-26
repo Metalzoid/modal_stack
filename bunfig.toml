@@ -1,0 +1,4 @@
+[test]
+coverageReporter = ["text"]
+coverageSkipTestFiles = true
+coverageThreshold = { line = 0.95, function = 0.95 }

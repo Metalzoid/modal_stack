@@ -1,0 +1,21 @@
+{
+  "name": "@metalzoid/modal-stack",
+  "version": "0.1.0",
+  "description": "Stackable modals, drawers and bottom sheets for Hotwire-powered Rails apps.",
+  "type": "module",
+  "main": "app/javascript/modal_stack/index.js",
+  "files": [
+    "app/javascript/modal_stack"
+  ],
+  "scripts": {
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "test:coverage": "bun test --coverage"
+  },
+  "license": "MIT",
+  "author": "Florian Gagnaire <gagnaire.flo@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Metalzoid/modal_stack.git"
+  }
+}
