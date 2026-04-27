@@ -1,0 +1,17 @@
+<div class="modal-stack__panel">
+  <h2>Nested form</h2>
+  <p>
+    You're now two layers deep. Browser back should pop me. ESC should pop me
+    too. Backdrop click should pop me unless I'm marked
+    non-dismissible.
+  </p>
+  <div class="row">
+    <button
+      data-action="click->modal-stack#closeAll"
+    >Close everything</button>
+    <button
+      class="secondary"
+      data-action="click->modal-stack#pop"
+    >Pop just this one</button>
+  </div>
+</div>

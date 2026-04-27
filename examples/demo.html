@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>modal_stack — JS demo</title>
+    <link rel="stylesheet" href="/examples/demo.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "@hotwired/stimulus": "https://esm.sh/@hotwired/stimulus@3.2.2",
+          "@hotwired/turbo": "https://esm.sh/@hotwired/turbo@8.0.13",
+          "modal_stack/install": "/app/javascript/modal_stack/install.js",
+          "modal_stack/orchestrator.js": "/app/javascript/modal_stack/orchestrator.js",
+          "modal_stack/runtime.js": "/app/javascript/modal_stack/runtime.js",
+          "modal_stack/state.js": "/app/javascript/modal_stack/state.js"
+        }
+      }
+    </script>
+    <script type="module">
+      import { Application } from "@hotwired/stimulus";
+      import "@hotwired/turbo";
+      import { install } from "modal_stack/install";
+
+      const application = Application.start();
+      install(application);
+      window.__stimulus = application;
+
+      document.addEventListener("modal_stack:ready", (event) => {
+        console.log("modal_stack ready, stackId =", event.detail.stackId);
+      });
+    </script>
+  </head>
+  <body>
+    <main class="page">
+      <h1>modal_stack — standalone JS demo</h1>
+      <p class="lead">
+        No Rails. The links below are intercepted by
+        <code>modal-stack-link</code>; clicking fetches a static fragment and
+        mounts it inside the shared <code>&lt;dialog&gt;</code>. Stacking, ESC,
+        backdrop click, browser back/forward should all behave per RFC §6.
+      </p>
+
+      <ul class="actions">
+        <li>
+          <a
+            href="/examples/fragments/edit.html"
+            data-controller="modal-stack-link"
+            data-action="click->modal-stack-link#open"
+            >Open the edit modal</a
+          >
+        </li>
+        <li>
+          <a
+            href="/examples/fragments/edit.html"
+            data-controller="modal-stack-link"
+            data-action="click->modal-stack-link#open"
+            data-modal-stack-link-variant="drawer"
+            data-modal-stack-link-side="right"
+            >Open as right drawer</a
+          >
+        </li>
+        <li>
+          <a
+            href="/examples/fragments/confirm.html"
+            data-controller="modal-stack-link"
+            data-action="click->modal-stack-link#open"
+            data-modal-stack-link-variant="confirmation"
+            data-modal-stack-link-dismissible="false"
+            >Open a non-dismissible confirmation</a
+          >
+        </li>
+      </ul>
+
+      <p>
+        Filler content so you can see the page behind the dialog when it opens.
+        Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vivamus mauris
+        nibh, faucibus sed dignissim eu, finibus quis lectus. Nulla facilisi.
+      </p>
+    </main>
+
+    <dialog
+      id="modal-stack-root"
+      data-controller="modal-stack"
+    ></dialog>
+  </body>
+</html>

@@ -1,0 +1,19 @@
+<div class="modal-stack__panel">
+  <h2>Edit project</h2>
+  <p>
+    This fragment was fetched from the server when you clicked the link, then
+    appended into the shared <code>&lt;dialog&gt;</code>. Try opening another
+    layer on top, or press <kbd>ESC</kbd> to close.
+  </p>
+  <div class="row">
+    <a
+      href="/examples/fragments/nested.html"
+      data-controller="modal-stack-link"
+      data-action="click->modal-stack-link#open"
+    >Open nested layer</a>
+    <button
+      class="secondary"
+      data-action="click->modal-stack#pop"
+    >Close</button>
+  </div>
+</div>
