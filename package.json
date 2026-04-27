@@ -4,18 +4,33 @@
   "description": "Stackable modals, drawers and bottom sheets for Hotwire-powered Rails apps.",
   "type": "module",
   "main": "app/javascript/modal_stack/index.js",
+  "exports": {
+    ".": "./app/javascript/modal_stack/index.js",
+    "./install": "./app/javascript/modal_stack/install.js",
+    "./controllers/modal_stack_controller": "./app/javascript/modal_stack/controllers/modal_stack_controller.js",
+    "./controllers/modal_stack_link_controller": "./app/javascript/modal_stack/controllers/modal_stack_link_controller.js"
+  },
   "files": [
     "app/javascript/modal_stack"
   ],
   "scripts": {
     "test": "bun test",
     "test:watch": "bun test --watch",
-    "test:coverage": "bun test --coverage"
+    "test:coverage": "bun test --coverage",
+    "build:check": "bun build --target=browser --external @hotwired/stimulus --external @hotwired/turbo app/javascript/modal_stack/install.js --outdir=/tmp/modal-stack-buildcheck"
   },
   "license": "MIT",
   "author": "Florian Gagnaire <gagnaire.flo@gmail.com>",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Metalzoid/modal_stack.git"
+  },
+  "peerDependencies": {
+    "@hotwired/stimulus": ">=3.0.0",
+    "@hotwired/turbo": ">=8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@hotwired/stimulus": { "optional": false },
+    "@hotwired/turbo": { "optional": true }
   }
 }

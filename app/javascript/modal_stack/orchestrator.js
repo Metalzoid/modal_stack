@@ -31,16 +31,16 @@ export class Orchestrator {
     return this.state.layers.length;
   }
 
-  push(layer) {
-    return this.#dispatch(push(this.state, layer));
+  push(layer, { html = null, fragment = null } = {}) {
+    return this.#dispatch(push(this.state, layer), { html, fragment });
   }
 
   pop() {
     return this.#dispatch(pop(this.state));
   }
 
-  replaceTop(patch, opts) {
-    return this.#dispatch(replaceTop(this.state, patch, opts));
+  replaceTop(patch, { html = null, fragment = null, ...opts } = {}) {
+    return this.#dispatch(replaceTop(this.state, patch, opts), { html, fragment });
   }
 
   closeAll() {
@@ -57,9 +57,13 @@ export class Orchestrator {
     );
   }
 
-  async #dispatch({ state, commands }) {
+  async #dispatch({ state, commands }, payload = {}) {
     this.state = state;
     for (const cmd of commands) {
+      if (cmd.type === "mountLayer" || cmd.type === "morphTopLayer") {
+        if (payload.html != null) cmd.html = payload.html;
+        if (payload.fragment != null) cmd.fragment = payload.fragment;
+      }
       await this.#execute(cmd);
     }
   }

@@ -46,20 +46,20 @@ export class BrowserRuntime {
     else layer.removeAttribute("inert");
   }
 
-  async mountLayer({ layerId, url, depth, variant, dismissible }) {
-    const fragment = await this.#fetchFragment(url);
+  async mountLayer({ layerId, url, depth, variant, dismissible, html, fragment }) {
+    const frag = await this.#resolveFragment({ url, html, fragment });
     const layer = this.document.createElement("div");
     this.#applyLayerAttrs(layer, { layerId, depth, variant, dismissible });
-    layer.append(...fragment.childNodes);
+    layer.append(...frag.childNodes);
     this.dialog.appendChild(layer);
   }
 
-  async morphTopLayer({ layerId, url, depth, variant, dismissible }) {
-    const fragment = await this.#fetchFragment(url);
+  async morphTopLayer({ layerId, url, depth, variant, dismissible, html, fragment }) {
+    const frag = await this.#resolveFragment({ url, html, fragment });
     const layer = this.#topLayer();
     if (!layer) return;
     this.#applyLayerAttrs(layer, { layerId, depth, variant, dismissible });
-    layer.replaceChildren(...fragment.childNodes);
+    layer.replaceChildren(...frag.childNodes);
   }
 
   unmountTopLayer() {
@@ -135,6 +135,12 @@ export class BrowserRuntime {
     layer.dataset.depth = String(depth);
     layer.dataset.variant = variant;
     layer.dataset.dismissible = String(dismissible);
+  }
+
+  async #resolveFragment({ url, html, fragment }) {
+    if (fragment) return fragment;
+    if (html != null) return parseFragment(html, this.document);
+    return this.#fetchFragment(url);
   }
 
   async #fetchFragment(url) {
