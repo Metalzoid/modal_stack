@@ -78,11 +78,43 @@ body[data-modal-stack-locked] {
   max-width: none;
   max-height: none;
   overflow: visible;
+  opacity: 0;
+  transition:
+    opacity var(--ms-duration) var(--ms-ease),
+    overlay var(--ms-duration) var(--ms-ease) allow-discrete,
+    display var(--ms-duration) var(--ms-ease) allow-discrete;
+}
+
+#modal-stack-root[open] {
+  opacity: 1;
+}
+
+@starting-style {
+  #modal-stack-root[open] {
+    opacity: 0;
+  }
 }
 
 #modal-stack-root::backdrop {
+  background: rgba(15, 23, 42, 0);
+  backdrop-filter: blur(0);
+  transition:
+    background var(--ms-duration) var(--ms-ease),
+    backdrop-filter var(--ms-duration) var(--ms-ease),
+    display var(--ms-duration) var(--ms-ease) allow-discrete,
+    overlay var(--ms-duration) var(--ms-ease) allow-discrete;
+}
+
+#modal-stack-root[open]::backdrop {
   background: rgba(15, 23, 42, 0.55);
   backdrop-filter: blur(2px);
+}
+
+@starting-style {
+  #modal-stack-root[open]::backdrop {
+    background: rgba(15, 23, 42, 0);
+    backdrop-filter: blur(0);
+  }
 }
 
 [data-modal-stack-target="layer"] {
@@ -97,8 +129,17 @@ body[data-modal-stack-locked] {
   box-shadow: var(--ms-shadow);
   padding: 0;
   transform: translate(-50%, -50%);
-  transition: transform var(--ms-duration) var(--ms-ease),
-    opacity var(--ms-duration) var(--ms-ease);
+  transition:
+    transform var(--ms-duration) var(--ms-ease),
+    opacity var(--ms-duration) var(--ms-ease),
+    filter var(--ms-duration) var(--ms-ease);
+}
+
+@starting-style {
+  [data-modal-stack-target="layer"] {
+    opacity: 0;
+    transform: translate(-50%, -44%) scale(0.97);
+  }
 }
 
 [data-modal-stack-target="layer"][data-variant="drawer"][data-side="right"] {
@@ -112,6 +153,13 @@ body[data-modal-stack-locked] {
   border-radius: var(--ms-radius) 0 0 var(--ms-radius);
 }
 
+@starting-style {
+  [data-modal-stack-target="layer"][data-variant="drawer"][data-side="right"] {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
+
 [data-modal-stack-target="layer"][data-variant="bottom_sheet"] {
   top: auto;
   bottom: 0;
@@ -120,6 +168,13 @@ body[data-modal-stack-locked] {
   max-width: none;
   transform: translate(0, 0);
   border-radius: var(--ms-radius) var(--ms-radius) 0 0;
+}
+
+@starting-style {
+  [data-modal-stack-target="layer"][data-variant="bottom_sheet"] {
+    opacity: 0;
+    transform: translateY(100%);
+  }
 }
 
 [data-modal-stack-target="layer"][data-depth="2"] {
