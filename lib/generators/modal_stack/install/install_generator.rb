@@ -8,47 +8,36 @@ module ModalStack
     class InstallGenerator < Rails::Generators::Base
       source_root File.expand_path("templates", __dir__)
 
-      ASSETS_MODES = %w[importmap jsbundling auto].freeze
-      PRESETS = %w[tailwind none].freeze
+      ASSETS_MODES = ModalStack::Configuration::ASSETS_MODES.map(&:to_s).freeze
+      CSS_PROVIDERS = ModalStack::Configuration::CSS_PROVIDERS.map(&:to_s).freeze
 
-      class_option :mode, type: :string, default: "auto",
-                          enum: ASSETS_MODES,
-                          desc: "Asset mode (auto-detects from importmap.rb / package.json by default)"
-      class_option :preset, type: :string, default: "tailwind",
-                            enum: PRESETS,
-                            desc: "CSS preset bundled with the install"
+      class_option :mode, type: :string, default: "auto", enum: ASSETS_MODES,
+                          desc: "JS asset strategy"
+      class_option :css_provider, type: :string, default: "tailwind",
+                                   enum: CSS_PROVIDERS,
+                                   desc: "CSS preset bundled with the install"
       class_option :skip_layout, type: :boolean, default: false,
-                                 desc: "Skip injecting <dialog> into application layout"
+                                  desc: "Skip injecting helpers / dialog into application layout"
       class_option :skip_js, type: :boolean, default: false,
-                             desc: "Skip JS pin / install wiring"
+                              desc: "Skip JS pin / install wiring"
+      class_option :skip_initializer, type: :boolean, default: false,
+                                       desc: "Skip generating config/initializers/modal_stack.rb"
+
+      def copy_initializer
+        return if options[:skip_initializer]
+        template "initializer.rb", "config/initializers/modal_stack.rb"
+      end
 
       def configure_javascript
         return if options[:skip_js]
-
         case resolved_mode
         when "importmap" then install_importmap
         when "jsbundling" then install_jsbundling
+        when "sprockets" then install_sprockets
         end
       end
 
-      def install_css_preset
-        return if options[:preset] == "none"
-
-        case options[:preset]
-        when "tailwind"
-          source_path = ModalStack::Engine.root.join(
-            "app/assets/stylesheets/modal_stack/tailwind.css"
-          )
-          dest = "app/assets/stylesheets/modal_stack.css"
-          if file_exists?(dest)
-            say_status :skip, dest, :yellow
-          else
-            create_file dest, File.read(source_path)
-          end
-        end
-      end
-
-      def inject_dialog_into_layout
+      def inject_into_layout
         return if options[:skip_layout]
 
         layout = "app/views/layouts/application.html.erb"
@@ -56,13 +45,8 @@ module ModalStack
           return say_status(:skip, "#{layout} not found", :yellow)
         end
 
-        if File.read(File.join(destination_root, layout)).include?('id="modal-stack-root"')
-          return say_status(:skip, "<dialog id=\"modal-stack-root\"> already present", :yellow)
-        end
-
-        inject_into_file layout, before: %r{</body>} do
-          %(  <dialog id="modal-stack-root" data-controller="modal-stack"></dialog>\n  )
-        end
+        inject_stylesheet_helper(layout)
+        inject_dialog_helper(layout)
       end
 
       def show_readme
@@ -70,17 +54,18 @@ module ModalStack
 
           modal_stack installed.
 
-          Mode:    #{resolved_mode}
-          Preset:  #{options[:preset]}
+          Mode:          #{resolved_mode}
+          CSS provider:  #{options[:css_provider]}
 
           Next steps:
-            1. Make sure <dialog id="modal-stack-root"> is rendered in your layout.
-            2. Confirm install(application) is wired in your JS entrypoint.
+            1. Confirm config/initializers/modal_stack.rb matches your needs.
+            2. Confirm <%= modal_stack_stylesheet_link_tag %> is in your <head>
+               and <%= modal_stack_dialog_tag %> is right before </body>.
             3. Add a modal_link_to in any view:
 
                  <%= modal_link_to "Edit", edit_thing_path(@thing) %>
 
-            4. In the controller behind that link:
+            4. Use the modal layout in the controller behind that link:
 
                  class ThingsController < ApplicationController
                    modal_stack_layout
@@ -101,6 +86,9 @@ module ModalStack
         mode = options[:mode].to_s
         return mode unless mode == "auto"
         return "importmap" if file_exists?("config/importmap.rb")
+        return "sprockets" if file_exists?("app/assets/config/manifest.js") &&
+                              !file_exists?("config/importmap.rb") &&
+                              !file_exists?("package.json")
         return "jsbundling" if file_exists?("package.json")
         "importmap"
       end
@@ -128,20 +116,32 @@ module ModalStack
           run "yarn add @hotwired/stimulus", abort_on_failure: false
         elsif file_exists?("package-lock.json")
           run "npm install @hotwired/stimulus", abort_on_failure: false
-        else
+        elsif file_exists?("package.json")
           say_status :warn, "no JS lockfile detected; install @hotwired/stimulus manually", :yellow
         end
 
-        say_status :info, "modal_stack JS source lives in app/javascript/modal_stack/.", :cyan
-        say_status :info, "Either copy app/javascript/modal_stack/install.js into your bundle, or pin via importmap.", :cyan
+        say_status :info, "modal_stack JS bundle: app/assets/javascripts/modal_stack.js (gem-served)", :cyan
+        say_status :info, "Add it to your bundler entry, or pin via importmap.", :cyan
 
         app_js = "app/javascript/application.js"
         inject_install_call(app_js) if file_exists?(app_js)
       end
 
+      def install_sprockets
+        manifest = "app/assets/config/manifest.js"
+        if file_exists?(manifest)
+          append_unique manifest, "//= link modal_stack.js"
+          append_unique manifest, "//= link modal_stack/#{options[:css_provider]}.css" unless options[:css_provider] == "none"
+        else
+          say_status :warn, "#{manifest} not found; add `//= link modal_stack.js` manually", :yellow
+        end
+
+        layout_inject_javascript_tag
+      end
+
       def inject_install_call(app_js)
         content = File.read(File.join(destination_root, app_js))
-        if content.include?("modal_stack")
+        if content.include?(%(from "modal_stack")) || content.include?(%('modal_stack'))
           return say_status(:skip, "modal_stack already imported in #{app_js}", :yellow)
         end
 
@@ -150,6 +150,44 @@ module ModalStack
           import { install as installModalStack } from "modal_stack"
           installModalStack(application)
         JS
+      end
+
+      def inject_stylesheet_helper(layout)
+        content = File.read(File.join(destination_root, layout))
+        if content.include?("modal_stack_stylesheet_link_tag")
+          say_status :skip, "modal_stack_stylesheet_link_tag already in #{layout}", :yellow
+        elsif content =~ %r{</head>}
+          inject_into_file layout, before: %r{</head>} do
+            "    <%= modal_stack_stylesheet_link_tag %>\n  "
+          end
+        else
+          say_status :warn, "no </head> in #{layout}; insert <%= modal_stack_stylesheet_link_tag %> manually", :yellow
+        end
+      end
+
+      def inject_dialog_helper(layout)
+        content = File.read(File.join(destination_root, layout))
+        if content.include?("modal_stack_dialog_tag") || content.include?(%(id="modal-stack-root"))
+          say_status :skip, "modal_stack_dialog_tag already in #{layout}", :yellow
+        elsif content =~ %r{</body>}
+          inject_into_file layout, before: %r{</body>} do
+            "  <%= modal_stack_dialog_tag %>\n  "
+          end
+        else
+          say_status :warn, "no </body> in #{layout}; insert <%= modal_stack_dialog_tag %> manually", :yellow
+        end
+      end
+
+      def layout_inject_javascript_tag
+        return if options[:skip_layout]
+        layout = "app/views/layouts/application.html.erb"
+        return unless file_exists?(layout)
+        content = File.read(File.join(destination_root, layout))
+        return if content.include?("javascript_include_tag \"modal_stack\"") ||
+                  content.include?("javascript_include_tag 'modal_stack'")
+        inject_into_file layout, before: %r{</head>} do
+          "    <%= javascript_include_tag \"modal_stack\" %>\n  "
+        end
       end
 
       def append_unique(path, line)

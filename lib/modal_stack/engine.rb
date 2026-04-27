@@ -10,8 +10,10 @@ module ModalStack
       ActiveSupport.on_load(:action_view) do
         require "modal_stack/helpers/modal_link_helper"
         require "modal_stack/helpers/modal_stack_container_helper"
+        require "modal_stack/helpers/modal_stack_assets_helper"
         include ModalStack::Helpers::ModalLinkHelper
         include ModalStack::Helpers::ModalStackContainerHelper
+        include ModalStack::Helpers::ModalStackAssetsHelper
       end
     end
 
@@ -34,6 +36,10 @@ module ModalStack
       app.config.assets.paths << root.join("app", "javascript").to_s
       app.config.assets.paths << root.join("app", "assets", "javascripts").to_s
       app.config.assets.paths << root.join("app", "assets", "stylesheets").to_s
+    end
+
+    config.after_initialize do
+      ModalStack::InitializerVersionCheck.perform
     end
   end
 end

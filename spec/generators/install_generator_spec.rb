@@ -47,19 +47,33 @@ RSpec.describe ModalStack::Generators::InstallGenerator do
     $stderr = original_stderr
   end
 
-  context "with an importmap-based app" do
+  def setup_layout
+    write_file("app/views/layouts/application.html.erb", <<~HTML)
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>App</title>
+        </head>
+        <body>
+          <%= yield %>
+        </body>
+      </html>
+    HTML
+  end
+
+  context "with importmap" do
     before do
       write_file("config/importmap.rb", %(pin "application", preload: true\n))
-      write_file("app/javascript/application.js", %(import { Application } from "@hotwired/stimulus"\nconst application = Application.start()\n))
-      write_file("app/views/layouts/application.html.erb", <<~HTML)
-        <!DOCTYPE html>
-        <html>
-          <head><title>App</title></head>
-          <body>
-            <%= yield %>
-          </body>
-        </html>
-      HTML
+      write_file("app/javascript/application.js", %(const application = Application.start()\n))
+      setup_layout
+    end
+
+    it "writes the initializer with the chosen options" do
+      run_generator(["--css-provider", "bootstrap"])
+      content = read_file("config/initializers/modal_stack.rb")
+      expect(content).to include("config.css_provider = :bootstrap")
+      expect(content).to include("config.assets_mode = :auto")
+      expect(content).to include(%(config.initializer_version = "#{ModalStack::INITIALIZER_VERSION}"))
     end
 
     it "pins modal_stack in importmap.rb" do
@@ -69,73 +83,111 @@ RSpec.describe ModalStack::Generators::InstallGenerator do
 
     it "appends the install call in application.js" do
       run_generator
-      expect(read_file("app/javascript/application.js")).to include('import { install as installModalStack } from "modal_stack"')
-      expect(read_file("app/javascript/application.js")).to include("installModalStack(application)")
+      content = read_file("app/javascript/application.js")
+      expect(content).to include('import { install as installModalStack } from "modal_stack"')
+      expect(content).to include("installModalStack(application)")
     end
 
-    it "injects the <dialog> root before </body>" do
+    it "injects modal_stack_stylesheet_link_tag in <head>" do
       run_generator
       layout = read_file("app/views/layouts/application.html.erb")
-      expect(layout).to match(%r{<dialog id="modal-stack-root" data-controller="modal-stack"></dialog>\s*</body>})
+      expect(layout).to match(%r{<%= modal_stack_stylesheet_link_tag %>\s*</head>})
     end
 
-    it "copies the tailwind preset CSS" do
+    it "injects modal_stack_dialog_tag before </body>" do
       run_generator
-      expect(file_exists?("app/assets/stylesheets/modal_stack.css")).to be true
-      content = read_file("app/assets/stylesheets/modal_stack.css")
-      expect(content).to include("modal_stack — Tailwind preset")
-      expect(content).to include("--modal-stack-duration")
+      layout = read_file("app/views/layouts/application.html.erb")
+      expect(layout).to match(%r{<%= modal_stack_dialog_tag %>\s*</body>})
     end
 
-    it "is idempotent" do
+    it "is idempotent across all injections" do
       run_generator
       run_generator
 
-      pins = read_file("config/importmap.rb").scan(/pin "modal_stack"/).size
-      expect(pins).to eq(1)
-
-      imports = read_file("app/javascript/application.js").scan(/from "modal_stack"/).size
-      expect(imports).to eq(1)
-
-      dialogs = read_file("app/views/layouts/application.html.erb").scan(/modal-stack-root/).size
-      expect(dialogs).to eq(1)
+      expect(read_file("config/importmap.rb").scan(/pin "modal_stack"/).size).to eq(1)
+      expect(read_file("app/javascript/application.js").scan(/from "modal_stack"/).size).to eq(1)
+      expect(read_file("app/views/layouts/application.html.erb").scan(/modal_stack_stylesheet_link_tag/).size).to eq(1)
+      expect(read_file("app/views/layouts/application.html.erb").scan(/modal_stack_dialog_tag/).size).to eq(1)
     end
 
-    it "skips layout injection with --skip-layout" do
+    it "honors --skip-layout" do
       run_generator(["--skip-layout"])
       layout = read_file("app/views/layouts/application.html.erb")
-      expect(layout).not_to include("modal-stack-root")
+      expect(layout).not_to include("modal_stack_stylesheet_link_tag")
+      expect(layout).not_to include("modal_stack_dialog_tag")
     end
 
-    it "skips JS wiring with --skip-js" do
+    it "honors --skip-js" do
       run_generator(["--skip-js"])
       expect(read_file("config/importmap.rb")).not_to include('pin "modal_stack"')
       expect(read_file("app/javascript/application.js")).not_to include("installModalStack")
     end
 
-    it "does not copy CSS when --preset=none" do
-      run_generator(["--preset", "none"])
-      expect(file_exists?("app/assets/stylesheets/modal_stack.css")).to be false
+    it "honors --skip-initializer" do
+      run_generator(["--skip-initializer"])
+      expect(file_exists?("config/initializers/modal_stack.rb")).to be false
+    end
+
+    it "writes css_provider :none when requested" do
+      run_generator(["--css-provider", "none"])
+      content = read_file("config/initializers/modal_stack.rb")
+      expect(content).to include("config.css_provider = :none")
     end
   end
 
-  context "with a jsbundling app (no importmap)" do
+  context "with sprockets" do
+    before do
+      write_file("app/assets/config/manifest.js", "//= link_tree ../images\n")
+      setup_layout
+    end
+
+    it "auto-detects sprockets when no importmap or package.json is present" do
+      run_generator
+      content = read_file("app/assets/config/manifest.js")
+      expect(content).to include("//= link modal_stack.js")
+      expect(content).to include("//= link modal_stack/tailwind.css")
+    end
+
+    it "appends the right css link based on --css-provider" do
+      run_generator(["--mode", "sprockets", "--css-provider", "bootstrap"])
+      content = read_file("app/assets/config/manifest.js")
+      expect(content).to include("//= link modal_stack/bootstrap.css")
+    end
+
+    it "skips css link when provider is none" do
+      run_generator(["--mode", "sprockets", "--css-provider", "none"])
+      content = read_file("app/assets/config/manifest.js")
+      expect(content).to include("//= link modal_stack.js")
+      expect(content).not_to include("//= link modal_stack/")
+    end
+  end
+
+  context "with jsbundling (no importmap)" do
     before do
       write_file("package.json", %({"name":"app","scripts":{}}))
-      write_file("app/javascript/application.js", %(const application = Application.start()\n))
-      write_file("app/views/layouts/application.html.erb", "<html><body></body></html>")
+      write_file("app/javascript/application.js", "")
+      setup_layout
     end
 
-    it "skips importmap pinning and surfaces a hint instead" do
-      output = run_generator
-      expect(output).to include("modal_stack JS source lives in")
+    it "surfaces install hints and wires the install call" do
+      output = run_generator(["--mode", "jsbundling"])
+      expect(output).to match(/JS bundle/i)
+      expect(read_file("app/javascript/application.js")).to include("installModalStack")
     end
+  end
 
-    it "still injects the dialog and CSS" do
-      run_generator
-      expect(read_file("app/views/layouts/application.html.erb")).to include("modal-stack-root")
-      expect(file_exists?("app/assets/stylesheets/modal_stack.css")).to be true
-    end
+  it "rejects unknown --mode without modifying any files" do
+    write_file("config/importmap.rb", %(pin "application"\n))
+    output = run_generator(["--mode", "wat"])
+    expect(output).to match(/mode/i)
+    expect(read_file("config/importmap.rb")).not_to include("modal_stack")
+  end
+
+  it "rejects unknown --css-provider" do
+    write_file("config/importmap.rb", %(pin "application"\n))
+    output = run_generator(["--css-provider", "boots"])
+    expect(output).to match(/css_provider|css-provider|provider/i)
+    expect(read_file("config/importmap.rb")).not_to include("modal_stack")
   end
 
   context "with no application layout" do
@@ -147,19 +199,5 @@ RSpec.describe ModalStack::Generators::InstallGenerator do
     it "warns and continues without crashing" do
       expect { run_generator }.not_to raise_error
     end
-  end
-
-  it "rejects unknown --mode without modifying any files" do
-    write_file("config/importmap.rb", %(pin "application"\n))
-    output = run_generator(["--mode", "wat"])
-    expect(output).to match(/mode/i)
-    expect(read_file("config/importmap.rb")).not_to include("modal_stack")
-  end
-
-  it "rejects unknown --preset without modifying any files" do
-    write_file("config/importmap.rb", %(pin "application"\n))
-    output = run_generator(["--preset", "boots"])
-    expect(output).to match(/preset/i)
-    expect(read_file("config/importmap.rb")).not_to include("modal_stack")
   end
 end
