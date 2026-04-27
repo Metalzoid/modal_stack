@@ -2,6 +2,9 @@ export const SNAPSHOT_KEY = "modalStackSnapshot";
 export const FRAGMENT_HEADER = "X-Modal-Stack-Request";
 
 const LAYER_SELECTOR = '[data-modal-stack-target="layer"]';
+// Hard cap: never wait longer than this for an exit transition to fire,
+// even if the host CSS forgot to transition the leaving state.
+const LEAVE_TIMEOUT_MS = 600;
 
 export class BrowserRuntime {
   constructor({
@@ -62,14 +65,15 @@ export class BrowserRuntime {
     layer.replaceChildren(...frag.childNodes);
   }
 
-  unmountTopLayer() {
-    this.#topLayer()?.remove();
+  async unmountTopLayer() {
+    const layer = this.#topLayer();
+    if (!layer) return;
+    await animateOut(layer);
   }
 
-  unmountAllLayers() {
-    for (const layer of this.dialog.querySelectorAll(LAYER_SELECTOR)) {
-      layer.remove();
-    }
+  async unmountAllLayers() {
+    const layers = [...this.dialog.querySelectorAll(LAYER_SELECTOR)];
+    await Promise.all(layers.map(animateOut));
   }
 
   pushHistory({ url, historyState }) {
@@ -165,6 +169,26 @@ function parseFragment(html, doc) {
   const fragment = doc.createDocumentFragment();
   fragment.append(...parsed.body.childNodes);
   return fragment;
+}
+
+// Marks the layer with [data-leaving] so the host CSS can transition it
+// out, then awaits transitionend (with a hard timeout) before removing
+// the element from the DOM.  If the host CSS doesn't define an exit
+// transition, the timeout still fires and the layer is removed cleanly.
+function animateOut(layer) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      layer.removeEventListener("transitionend", finish);
+      layer.remove();
+      resolve();
+    };
+    layer.addEventListener("transitionend", finish, { once: true });
+    layer.dataset.leaving = "";
+    setTimeout(finish, LEAVE_TIMEOUT_MS);
+  });
 }
 
 function escapeAttr(value) {
