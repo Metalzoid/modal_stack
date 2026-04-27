@@ -1,0 +1,253 @@
+/*
+ * modal_stack — Tailwind preset
+ *
+ * Structural CSS for the <dialog id="modal-stack-root"> + layered
+ * `[data-modal-stack-target="layer"]` setup driven by the JS runtime.
+ * Visual tokens are exposed as CSS custom properties on `:root` so they
+ * can be overridden globally, per scope, or via Tailwind's
+ * `:root { --modal-stack-* }` declaration.
+ *
+ * Variants:    [data-variant="modal" | "drawer" | "bottom_sheet" | "confirmation"]
+ * Drawer side: [data-side="left" | "right"]
+ * Sizes:       [data-modal-stack-size="sm" | "md" | "lg" | "xl"]
+ *
+ * Entry / exit transitions:
+ *   - @starting-style + transition-behavior: allow-discrete (Chrome 117+,
+ *     Safari 17.4+, Firefox 129+).
+ *   - The runtime sets [data-leaving] before unmounting a layer so the
+ *     same transition rules apply on exit.
+ */
+
+:root {
+  --modal-stack-z-base: 1000;
+  --modal-stack-duration: 220ms;
+  --modal-stack-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --modal-stack-radius: 14px;
+  --modal-stack-bg: #ffffff;
+  --modal-stack-fg: #0f172a;
+  --modal-stack-shadow: 0 30px 60px -20px rgba(15, 23, 42, 0.35);
+  --modal-stack-backdrop: rgba(15, 23, 42, 0.55);
+  --modal-stack-backdrop-blur: 2px;
+  --modal-stack-panel-padding: 24px;
+  --modal-stack-size-sm: 24rem;   /* 384px */
+  --modal-stack-size-md: 34rem;   /* 544px */
+  --modal-stack-size-lg: 48rem;   /* 768px */
+  --modal-stack-size-xl: 64rem;   /* 1024px */
+  --modal-stack-drawer-width: 28rem; /* 448px */
+}
+
+/* --- Body lock when the stack is open ------------------------------- */
+
+body[data-modal-stack-locked] {
+  overflow: hidden;
+  /* Compensate for the scrollbar width to avoid a layout shift. */
+  padding-right: var(--modal-stack-scrollbar-width, 0);
+}
+
+/* --- The single dialog root ---------------------------------------- */
+
+#modal-stack-root {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  max-width: none;
+  max-height: none;
+  overflow: visible;
+  z-index: var(--modal-stack-z-base);
+  opacity: 0;
+  transition:
+    opacity var(--modal-stack-duration) var(--modal-stack-ease),
+    overlay var(--modal-stack-duration) var(--modal-stack-ease) allow-discrete,
+    display var(--modal-stack-duration) var(--modal-stack-ease) allow-discrete;
+}
+
+#modal-stack-root[open] {
+  opacity: 1;
+}
+
+@starting-style {
+  #modal-stack-root[open] {
+    opacity: 0;
+  }
+}
+
+#modal-stack-root::backdrop {
+  background: rgba(15, 23, 42, 0);
+  backdrop-filter: blur(0);
+  transition:
+    background var(--modal-stack-duration) var(--modal-stack-ease),
+    backdrop-filter var(--modal-stack-duration) var(--modal-stack-ease),
+    overlay var(--modal-stack-duration) var(--modal-stack-ease) allow-discrete,
+    display var(--modal-stack-duration) var(--modal-stack-ease) allow-discrete;
+}
+
+#modal-stack-root[open]::backdrop {
+  background: var(--modal-stack-backdrop);
+  backdrop-filter: blur(var(--modal-stack-backdrop-blur));
+}
+
+@starting-style {
+  #modal-stack-root[open]::backdrop {
+    background: rgba(15, 23, 42, 0);
+    backdrop-filter: blur(0);
+  }
+}
+
+/* --- Layer (one per modal, vertically stacked Z-axis) -------------- */
+
+[data-modal-stack-target="layer"] {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--modal-stack-size-md);
+  max-width: 92vw;
+  max-height: min(85vh, 720px);
+  overflow-y: auto;
+  background: var(--modal-stack-bg);
+  color: var(--modal-stack-fg);
+  border-radius: var(--modal-stack-radius);
+  box-shadow: var(--modal-stack-shadow);
+  padding: 0;
+  transform: translate(-50%, -50%);
+  transition:
+    transform var(--modal-stack-duration) var(--modal-stack-ease),
+    opacity var(--modal-stack-duration) var(--modal-stack-ease),
+    filter var(--modal-stack-duration) var(--modal-stack-ease);
+}
+
+@starting-style {
+  [data-modal-stack-target="layer"] {
+    opacity: 0;
+    transform: translate(-50%, -44%) scale(0.97);
+  }
+}
+
+[data-modal-stack-target="layer"][data-leaving] {
+  opacity: 0;
+  transform: translate(-50%, -56%) scale(0.97);
+  pointer-events: none;
+}
+
+[data-modal-stack-target="layer"][inert] {
+  opacity: 0.5;
+  filter: blur(0.5px);
+}
+
+/* --- Sizes via [data-modal-stack-size] ----------------------------- */
+
+[data-modal-stack-target="layer"][data-modal-stack-size="sm"] { width: var(--modal-stack-size-sm); }
+[data-modal-stack-target="layer"][data-modal-stack-size="md"] { width: var(--modal-stack-size-md); }
+[data-modal-stack-target="layer"][data-modal-stack-size="lg"] { width: var(--modal-stack-size-lg); }
+[data-modal-stack-target="layer"][data-modal-stack-size="xl"] { width: var(--modal-stack-size-xl); }
+
+/* --- Subtle depth offset for stacked layers ----------------------- */
+
+[data-modal-stack-target="layer"][data-depth="2"] {
+  transform: translate(-50%, -53%) scale(1.015);
+}
+
+[data-modal-stack-target="layer"][data-depth="3"] {
+  transform: translate(-50%, -56%) scale(1.03);
+}
+
+[data-modal-stack-target="layer"][data-depth="4"] {
+  transform: translate(-50%, -59%) scale(1.045);
+}
+
+/* --- Drawer ------------------------------------------------------- */
+
+[data-modal-stack-target="layer"][data-variant="drawer"] {
+  top: 0;
+  height: 100vh;
+  max-height: none;
+  width: var(--modal-stack-drawer-width);
+  max-width: 90vw;
+}
+
+[data-modal-stack-target="layer"][data-variant="drawer"][data-side="right"] {
+  left: auto;
+  right: 0;
+  transform: translateX(0);
+  border-radius: var(--modal-stack-radius) 0 0 var(--modal-stack-radius);
+}
+
+[data-modal-stack-target="layer"][data-variant="drawer"][data-side="left"] {
+  left: 0;
+  transform: translateX(0);
+  border-radius: 0 var(--modal-stack-radius) var(--modal-stack-radius) 0;
+}
+
+@starting-style {
+  [data-modal-stack-target="layer"][data-variant="drawer"][data-side="right"] {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  [data-modal-stack-target="layer"][data-variant="drawer"][data-side="left"] {
+    opacity: 0;
+    transform: translateX(-100%);
+  }
+}
+
+[data-modal-stack-target="layer"][data-variant="drawer"][data-side="right"][data-leaving] {
+  opacity: 0;
+  transform: translateX(100%);
+}
+
+[data-modal-stack-target="layer"][data-variant="drawer"][data-side="left"][data-leaving] {
+  opacity: 0;
+  transform: translateX(-100%);
+}
+
+/* --- Bottom sheet ------------------------------------------------- */
+
+[data-modal-stack-target="layer"][data-variant="bottom_sheet"] {
+  top: auto;
+  bottom: 0;
+  left: 0;
+  width: 100vw;
+  max-width: none;
+  transform: translate(0, 0);
+  border-radius: var(--modal-stack-radius) var(--modal-stack-radius) 0 0;
+  max-height: 90vh;
+}
+
+@starting-style {
+  [data-modal-stack-target="layer"][data-variant="bottom_sheet"] {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+}
+
+[data-modal-stack-target="layer"][data-variant="bottom_sheet"][data-leaving] {
+  opacity: 0;
+  transform: translateY(100%);
+}
+
+/* --- Confirmation ------------------------------------------------- */
+
+[data-modal-stack-target="layer"][data-variant="confirmation"] {
+  width: var(--modal-stack-size-sm);
+}
+
+/* --- Panel slot (the modal_stack_container output) --------------- */
+
+.modal-stack__panel {
+  padding: var(--modal-stack-panel-padding);
+  display: grid;
+  gap: 14px;
+}
+
+/* --- Reduced motion ---------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  #modal-stack-root,
+  #modal-stack-root::backdrop,
+  [data-modal-stack-target="layer"] {
+    transition-duration: 1ms !important;
+  }
+}

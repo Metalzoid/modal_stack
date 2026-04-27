@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Build the importmap-friendly JS bundle.
+#
+# The gem distributes a single concatenated file under
+# app/assets/javascripts/modal_stack.js so that:
+#  - Rails apps using importmap can `pin "modal_stack"` without juggling
+#    every internal source file.
+#  - Stimulus and Turbo stay external — the host app already provides them.
+#
+# This script is idempotent; commit the output.
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+bun build app/javascript/modal_stack/install.js \
+  --target=browser \
+  --external @hotwired/stimulus \
+  --external @hotwired/turbo \
+  --outfile=app/assets/javascripts/modal_stack.js
+
+bytes=$(wc -c < app/assets/javascripts/modal_stack.js | tr -d ' ')
+echo "✓ app/assets/javascripts/modal_stack.js (${bytes} bytes)"
