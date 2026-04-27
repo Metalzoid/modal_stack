@@ -57,13 +57,13 @@ describe("constructor", () => {
     expect(orchestrator.depth).toBe(0);
   });
 
-  test("restoreFrom seeds state when valid", () => {
+  test("restoreFrom seeds state when valid", async () => {
     const seed = new Orchestrator({
       runtime,
       stackId: STACK_ID,
       baseUrl: BASE_URL,
     });
-    seed.push({ id: "L1", url: "/x" });
+    await seed.push({ id: "L1", url: "/x" });
     const json = snapshot(seed.state);
 
     const restored = new Orchestrator({
@@ -76,13 +76,13 @@ describe("constructor", () => {
     expect(restored.layers[0].id).toBe("L1");
   });
 
-  test("restoreFrom is ignored when stackId mismatches", () => {
+  test("restoreFrom is ignored when stackId mismatches", async () => {
     const seed = new Orchestrator({
       runtime,
       stackId: STACK_ID,
       baseUrl: BASE_URL,
     });
-    seed.push({ id: "L1", url: "/x" });
+    await seed.push({ id: "L1", url: "/x" });
     const json = snapshot(seed.state);
 
     const restored = new Orchestrator({
@@ -100,9 +100,9 @@ describe("push", () => {
     await orchestrator.push({ id: "L1", url: "/x" });
     const types = runtime._calls.map((c) => c.type);
     expect(types).toEqual([
+      "mountLayer",
       "showDialog",
       "lockScroll",
-      "mountLayer",
       "pushHistory",
       "persistSnapshot",
     ]);

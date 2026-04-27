@@ -40,13 +40,11 @@ export function push(state, layer) {
   const layers = Object.freeze([...state.layers, newLayer]);
   const depth = layers.length;
 
+  // mountLayer runs first so the dialog (or the previous layer) doesn't
+  // flash an empty / interactive intermediate state while we're still
+  // loading the new content.  When the orchestrator has pre-fetched the
+  // fragment, mountLayer is a sync DOM append.
   const commands = [];
-  if (depth === 1) {
-    commands.push({ type: "showDialog" });
-    commands.push({ type: "lockScroll" });
-  } else {
-    commands.push({ type: "inertLayer", layerId: previousTop.id, value: true });
-  }
   commands.push({
     type: "mountLayer",
     layerId: newLayer.id,
@@ -55,6 +53,12 @@ export function push(state, layer) {
     variant: newLayer.variant,
     dismissible: newLayer.dismissible,
   });
+  if (depth === 1) {
+    commands.push({ type: "showDialog" });
+    commands.push({ type: "lockScroll" });
+  } else {
+    commands.push({ type: "inertLayer", layerId: previousTop.id, value: true });
+  }
   commands.push({
     type: "pushHistory",
     url: newLayer.url,

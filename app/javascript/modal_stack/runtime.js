@@ -137,13 +137,7 @@ export class BrowserRuntime {
     layer.dataset.dismissible = String(dismissible);
   }
 
-  async #resolveFragment({ url, html, fragment }) {
-    if (fragment) return fragment;
-    if (html != null) return parseFragment(html, this.document);
-    return this.#fetchFragment(url);
-  }
-
-  async #fetchFragment(url) {
+  async fetchFragment(url) {
     const resp = await this.fetcher(url, {
       headers: {
         Accept: "text/html, text/vnd.turbo-stream.html",
@@ -156,6 +150,12 @@ export class BrowserRuntime {
     }
     const html = await resp.text();
     return parseFragment(html, this.document);
+  }
+
+  async #resolveFragment({ url, html, fragment }) {
+    if (fragment) return fragment;
+    if (html != null) return parseFragment(html, this.document);
+    return this.fetchFragment(url);
   }
 }
 

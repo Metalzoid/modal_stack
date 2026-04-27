@@ -66,8 +66,6 @@ describe("push", () => {
       dismissible: true,
     });
     expect(commands).toEqual([
-      { type: "showDialog" },
-      { type: "lockScroll" },
       {
         type: "mountLayer",
         layerId: "L1",
@@ -76,6 +74,8 @@ describe("push", () => {
         variant: "modal",
         dismissible: true,
       },
+      { type: "showDialog" },
+      { type: "lockScroll" },
       {
         type: "pushHistory",
         url: "/projects/42/edit",
@@ -85,15 +85,16 @@ describe("push", () => {
     ]);
   });
 
-  test("second layer inerts previous top, no showDialog", () => {
+  test("second layer mounts before inerting the previous top, no showDialog", () => {
     const first = pushed(freshStack()).state;
     const { state, commands } = push(first, { id: "L2", url: "/clients/new" });
     expect(state.layers).toHaveLength(2);
-    expect(commands[0]).toEqual({
-      type: "inertLayer",
-      layerId: "L1",
-      value: true,
-    });
+    expect(commands.map((c) => c.type)).toEqual([
+      "mountLayer",
+      "inertLayer",
+      "pushHistory",
+      "persistSnapshot",
+    ]);
     expect(commands).not.toContainEqual({ type: "showDialog" });
     expect(commands).toContainEqual({
       type: "pushHistory",

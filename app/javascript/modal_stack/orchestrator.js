@@ -31,7 +31,10 @@ export class Orchestrator {
     return this.state.layers.length;
   }
 
-  push(layer, { html = null, fragment = null } = {}) {
+  async push(layer, { html = null, fragment = null } = {}) {
+    if (fragment == null && html == null && layer?.url) {
+      fragment = await this.#prefetch(layer.url);
+    }
     return this.#dispatch(push(this.state, layer), { html, fragment });
   }
 
@@ -39,8 +42,16 @@ export class Orchestrator {
     return this.#dispatch(pop(this.state));
   }
 
-  replaceTop(patch, { html = null, fragment = null, ...opts } = {}) {
+  async replaceTop(patch, { html = null, fragment = null, ...opts } = {}) {
+    if (fragment == null && html == null && patch?.url) {
+      fragment = await this.#prefetch(patch.url);
+    }
     return this.#dispatch(replaceTop(this.state, patch, opts), { html, fragment });
+  }
+
+  async #prefetch(url) {
+    if (typeof this.runtime.fetchFragment !== "function") return null;
+    return this.runtime.fetchFragment(url);
   }
 
   closeAll() {
