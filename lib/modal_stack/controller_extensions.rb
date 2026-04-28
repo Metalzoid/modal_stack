@@ -15,16 +15,27 @@ module ModalStack
       #   class Projects::EditController < ApplicationController
       #     modal_stack_layout
       #   end
-      def modal_stack_layout(fallback: nil)
-        layout(lambda do
-          if modal_stack_request?
-            "modal"
-          elsif fallback.respond_to?(:call)
-            fallback.call
-          else
-            fallback
-          end
-        end)
+      #
+      # Accepts the same `only:` / `except:` filters as Rails' `layout`,
+      # so a controller can host both a non-modal index and a set of
+      # modal panel actions:
+      #
+      #   class ModalStack::DemosController < ApplicationController
+      #     modal_stack_layout except: [:index]
+      #   end
+      def modal_stack_layout(fallback: nil, **conditions)
+        layout(
+          lambda do
+            if modal_stack_request?
+              "modal"
+            elsif fallback.respond_to?(:call)
+              fallback.call
+            else
+              fallback
+            end
+          end,
+          conditions
+        )
       end
     end
 
