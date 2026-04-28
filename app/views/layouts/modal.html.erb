@@ -1,3 +1,6 @@
-<%= modal_stack_container do %>
-  <%= yield %>
-<% end %>
+<%# modal_stack panel layout — minimal by design.
+    Each modal action's view is responsible for calling
+    `modal_stack_container` with its own size / variant / dismissible
+    options. That keeps per-panel options at the call site instead of
+    forcing them through the layout. %>
+<%= yield %>
