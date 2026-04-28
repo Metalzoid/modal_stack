@@ -81,11 +81,26 @@ RSpec.describe ModalStack::Generators::InstallGenerator do
       expect(read_file("config/importmap.rb")).to include('pin "modal_stack", to: "modal_stack.js"')
     end
 
-    it "appends the install call in application.js" do
+    it "appends the install call in application.js when that's the only Stimulus entry point" do
       run_generator
       content = read_file("app/javascript/application.js")
       expect(content).to include('import { install as installModalStack } from "modal_stack"')
       expect(content).to include("installModalStack(application)")
+    end
+
+    it "prefers app/javascript/controllers/application.js when present (Rails 7+ default)" do
+      write_file("app/javascript/controllers/application.js", <<~JS)
+        import { Application } from "@hotwired/stimulus"
+        const application = Application.start()
+        export { application }
+      JS
+      run_generator
+      controllers_app = read_file("app/javascript/controllers/application.js")
+      expect(controllers_app).to include('import { install as installModalStack } from "modal_stack"')
+      expect(controllers_app).to include("installModalStack(application)")
+
+      base_app = read_file("app/javascript/application.js")
+      expect(base_app).not_to include("installModalStack")
     end
 
     it "injects modal_stack_stylesheet_link_tag in <head>" do

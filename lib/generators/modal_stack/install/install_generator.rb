@@ -101,11 +101,11 @@ module ModalStack
           say_status :warn, "#{importmap} not found; cannot pin modal_stack", :yellow
         end
 
-        app_js = "app/javascript/application.js"
-        if file_exists?(app_js)
-          inject_install_call(app_js)
+        target = stimulus_install_target
+        if target
+          inject_install_call(target)
         else
-          say_status :warn, "#{app_js} not found; add the install call manually", :yellow
+          say_status :warn, "no Stimulus app entry point found; add the install call manually", :yellow
         end
       end
 
@@ -123,8 +123,22 @@ module ModalStack
         say_status :info, "modal_stack JS bundle: app/assets/javascripts/modal_stack.js (gem-served)", :cyan
         say_status :info, "Add it to your bundler entry, or pin via importmap.", :cyan
 
-        app_js = "app/javascript/application.js"
-        inject_install_call(app_js) if file_exists?(app_js)
+        target = stimulus_install_target
+        inject_install_call(target) if target
+      end
+
+      # Where to drop `installModalStack(application)`. The Rails 7+
+      # importmap default puts the Stimulus Application instance in
+      # app/javascript/controllers/application.js (and exports it from
+      # there), so we prefer that. Falling back to
+      # app/javascript/application.js is best-effort — older or custom
+      # layouts usually wire Stimulus themselves.
+      def stimulus_install_target
+        candidates = [
+          "app/javascript/controllers/application.js",
+          "app/javascript/application.js"
+        ]
+        candidates.find { |path| file_exists?(path) }
       end
 
       def install_sprockets
