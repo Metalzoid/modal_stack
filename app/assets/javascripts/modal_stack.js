@@ -10,8 +10,31 @@ var VARIANTS = Object.freeze([
 ]);
 var SNAPSHOT_VERSION = 1;
 var DEFAULT_MAX_AGE_MS = 30 * 60 * 1000;
-function freezeLayer({ id, url, variant, dismissible }) {
-  return Object.freeze({ id, url, variant, dismissible: !!dismissible });
+var DRAWER_SIDES = Object.freeze(["left", "right", "top", "bottom"]);
+function normalizeLayerOptions({ variant, size, side, width, height }) {
+  const normalizedSide = variant === "drawer" ? side ?? "right" : side ?? null;
+  if (variant === "drawer" && !DRAWER_SIDES.includes(normalizedSide)) {
+    throw new Error(`unknown drawer side: ${normalizedSide}`);
+  }
+  return {
+    size: size ?? null,
+    side: normalizedSide,
+    width: width ?? null,
+    height: height ?? null
+  };
+}
+function freezeLayer({ id, url, variant, dismissible, size, side, width, height }) {
+  const normalized = normalizeLayerOptions({ variant, size, side, width, height });
+  return Object.freeze({
+    id,
+    url,
+    variant,
+    dismissible: !!dismissible,
+    size: normalized.size,
+    side: normalized.side,
+    width: normalized.width,
+    height: normalized.height
+  });
 }
 function createStack({ stackId, baseUrl }) {
   if (!stackId)
@@ -36,7 +59,11 @@ function push(state, layer) {
     id: layer.id,
     url: layer.url,
     variant,
-    dismissible: layer.dismissible ?? true
+    dismissible: layer.dismissible ?? true,
+    size: layer.size,
+    side: layer.side,
+    width: layer.width,
+    height: layer.height
   });
   const previousTop = topLayer(state);
   const layers = Object.freeze([...state.layers, newLayer]);
@@ -48,7 +75,11 @@ function push(state, layer) {
     url: newLayer.url,
     depth,
     variant: newLayer.variant,
-    dismissible: newLayer.dismissible
+    dismissible: newLayer.dismissible,
+    ...newLayer.size ? { size: newLayer.size } : {},
+    ...newLayer.side ? { side: newLayer.side } : {},
+    ...newLayer.width ? { width: newLayer.width } : {},
+    ...newLayer.height ? { height: newLayer.height } : {}
   });
   if (depth === 1) {
     commands.push({ type: "showDialog" });
@@ -95,7 +126,11 @@ function replaceTop(state, patch, { historyMode = "replace" } = {}) {
     id: patch.id ?? top.id,
     url: patch.url ?? top.url,
     variant: patch.variant ?? top.variant,
-    dismissible: patch.dismissible ?? top.dismissible
+    dismissible: patch.dismissible ?? top.dismissible,
+    size: patch.size ?? top.size,
+    side: patch.side ?? top.side,
+    width: patch.width ?? top.width,
+    height: patch.height ?? top.height
   });
   const newLayers = Object.freeze([...state.layers.slice(0, -1), next]);
   const depth = newLayers.length;
@@ -113,7 +148,11 @@ function replaceTop(state, patch, { historyMode = "replace" } = {}) {
         url: next.url,
         depth,
         variant: next.variant,
-        dismissible: next.dismissible
+        dismissible: next.dismissible,
+        ...next.size ? { size: next.size } : {},
+        ...next.side ? { side: next.side } : {},
+        ...next.width ? { width: next.width } : {},
+        ...next.height ? { height: next.height } : {}
       },
       historyCmd,
       { type: "persistSnapshot" }
@@ -184,7 +223,11 @@ function handlePopstate(state, { historyState, locationHref }) {
       id: targetLayerId,
       url: locationHref ?? top.url,
       variant: top.variant,
-      dismissible: top.dismissible
+      dismissible: top.dismissible,
+      size: top.size,
+      side: top.side,
+      width: top.width,
+      height: top.height
     });
     const newLayers = Object.freeze([
       ...state.layers.slice(0, -1),
@@ -199,7 +242,11 @@ function handlePopstate(state, { historyState, locationHref }) {
           url: updatedTop.url,
           depth: currentDepth,
           variant: updatedTop.variant,
-          dismissible: updatedTop.dismissible
+          dismissible: updatedTop.dismissible,
+          ...updatedTop.size ? { size: updatedTop.size } : {},
+          ...updatedTop.side ? { side: updatedTop.side } : {},
+          ...updatedTop.width ? { width: updatedTop.width } : {},
+          ...updatedTop.height ? { height: updatedTop.height } : {}
         },
         { type: "persistSnapshot" }
       ]
@@ -383,19 +430,19 @@ class BrowserRuntime {
     else
       layer.removeAttribute("inert");
   }
-  async mountLayer({ layerId, url, depth, variant, dismissible, html, fragment }) {
+  async mountLayer({ layerId, url, depth, variant, dismissible, size, side, width, height, html, fragment }) {
     const frag = await this.#resolveFragment({ url, html, fragment });
     const layer = this.document.createElement("div");
-    this.#applyLayerAttrs(layer, { layerId, depth, variant, dismissible });
+    this.#applyLayerAttrs(layer, { layerId, depth, variant, dismissible, size, side, width, height });
     layer.append(...frag.childNodes);
     this.dialog.appendChild(layer);
   }
-  async morphTopLayer({ layerId, url, depth, variant, dismissible, html, fragment }) {
+  async morphTopLayer({ layerId, url, depth, variant, dismissible, size, side, width, height, html, fragment }) {
     const frag = await this.#resolveFragment({ url, html, fragment });
     const layer = this.#topLayer();
     if (!layer)
       return;
-    this.#applyLayerAttrs(layer, { layerId, depth, variant, dismissible });
+    this.#applyLayerAttrs(layer, { layerId, depth, variant, dismissible, size, side, width, height });
     layer.replaceChildren(...frag.childNodes);
   }
   async unmountTopLayer() {
@@ -450,12 +497,34 @@ class BrowserRuntime {
     const layers = this.dialog.querySelectorAll(LAYER_SELECTOR);
     return layers[layers.length - 1] ?? null;
   }
-  #applyLayerAttrs(layer, { layerId, depth, variant, dismissible }) {
+  #applyLayerAttrs(layer, { layerId, depth, variant, dismissible, size, side, width, height }) {
     layer.dataset.modalStackTarget = "layer";
     layer.dataset.layerId = layerId;
     layer.dataset.depth = String(depth);
     layer.dataset.variant = variant;
     layer.dataset.dismissible = String(dismissible);
+    if (size)
+      layer.dataset.modalStackSize = size;
+    else
+      delete layer.dataset.modalStackSize;
+    if (side)
+      layer.dataset.side = side;
+    else
+      delete layer.dataset.side;
+    if (width) {
+      layer.dataset.modalStackWidth = width;
+      layer.style.width = width;
+    } else {
+      delete layer.dataset.modalStackWidth;
+      layer.style.removeProperty("width");
+    }
+    if (height) {
+      layer.dataset.modalStackHeight = height;
+      layer.style.height = height;
+    } else {
+      delete layer.dataset.modalStackHeight;
+      layer.style.removeProperty("height");
+    }
   }
   async fetchFragment(url) {
     const resp = await this.fetcher(url, {
@@ -604,6 +673,10 @@ function layerFromStreamElement(el) {
     id: el.dataset.layerId || generateLayerId(),
     url: el.dataset.url || window.location.href,
     variant: el.dataset.variant || "modal",
+    side: el.dataset.side,
+    size: el.dataset.size,
+    width: el.dataset.width,
+    height: el.dataset.height,
     dismissible: el.dataset.dismissible !== "false"
   };
 }
@@ -615,6 +688,14 @@ function layerPatchFromStreamElement(el) {
     patch.url = el.dataset.url;
   if (el.dataset.variant)
     patch.variant = el.dataset.variant;
+  if (el.dataset.side)
+    patch.side = el.dataset.side;
+  if (el.dataset.size)
+    patch.size = el.dataset.size;
+  if (el.dataset.width)
+    patch.width = el.dataset.width;
+  if (el.dataset.height)
+    patch.height = el.dataset.height;
   if (el.dataset.dismissible != null) {
     patch.dismissible = el.dataset.dismissible !== "false";
   }
@@ -646,6 +727,8 @@ class ModalStackLinkController extends Controller2 {
       variant: ds.modalStackLinkVariant || "modal",
       side: ds.modalStackLinkSide,
       size: ds.modalStackLinkSize,
+      width: ds.modalStackLinkWidth,
+      height: ds.modalStackLinkHeight,
       dismissible: ds.modalStackLinkDismissible !== "false"
     });
   }

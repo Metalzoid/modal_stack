@@ -7,9 +7,34 @@ export const VARIANTS = Object.freeze([
 
 const SNAPSHOT_VERSION = 1;
 const DEFAULT_MAX_AGE_MS = 30 * 60 * 1000;
+const DRAWER_SIDES = Object.freeze(["left", "right", "top", "bottom"]);
 
-function freezeLayer({ id, url, variant, dismissible }) {
-  return Object.freeze({ id, url, variant, dismissible: !!dismissible });
+function normalizeLayerOptions({ variant, size, side, width, height }) {
+  // A drawer must always carry a side so CSS can position it.
+  const normalizedSide = variant === "drawer" ? (side ?? "right") : (side ?? null);
+  if (variant === "drawer" && !DRAWER_SIDES.includes(normalizedSide)) {
+    throw new Error(`unknown drawer side: ${normalizedSide}`);
+  }
+  return {
+    size: size ?? null,
+    side: normalizedSide,
+    width: width ?? null,
+    height: height ?? null,
+  };
+}
+
+function freezeLayer({ id, url, variant, dismissible, size, side, width, height }) {
+  const normalized = normalizeLayerOptions({ variant, size, side, width, height });
+  return Object.freeze({
+    id,
+    url,
+    variant,
+    dismissible: !!dismissible,
+    size: normalized.size,
+    side: normalized.side,
+    width: normalized.width,
+    height: normalized.height,
+  });
 }
 
 export function createStack({ stackId, baseUrl }) {
@@ -35,6 +60,10 @@ export function push(state, layer) {
     url: layer.url,
     variant,
     dismissible: layer.dismissible ?? true,
+    size: layer.size,
+    side: layer.side,
+    width: layer.width,
+    height: layer.height,
   });
   const previousTop = topLayer(state);
   const layers = Object.freeze([...state.layers, newLayer]);
@@ -52,6 +81,10 @@ export function push(state, layer) {
     depth,
     variant: newLayer.variant,
     dismissible: newLayer.dismissible,
+    ...(newLayer.size ? { size: newLayer.size } : {}),
+    ...(newLayer.side ? { side: newLayer.side } : {}),
+    ...(newLayer.width ? { width: newLayer.width } : {}),
+    ...(newLayer.height ? { height: newLayer.height } : {}),
   });
   if (depth === 1) {
     commands.push({ type: "showDialog" });
@@ -103,6 +136,10 @@ export function replaceTop(state, patch, { historyMode = "replace" } = {}) {
     url: patch.url ?? top.url,
     variant: patch.variant ?? top.variant,
     dismissible: patch.dismissible ?? top.dismissible,
+    size: patch.size ?? top.size,
+    side: patch.side ?? top.side,
+    width: patch.width ?? top.width,
+    height: patch.height ?? top.height,
   });
   const newLayers = Object.freeze([...state.layers.slice(0, -1), next]);
   const depth = newLayers.length;
@@ -123,6 +160,10 @@ export function replaceTop(state, patch, { historyMode = "replace" } = {}) {
         depth,
         variant: next.variant,
         dismissible: next.dismissible,
+        ...(next.size ? { size: next.size } : {}),
+        ...(next.side ? { side: next.side } : {}),
+        ...(next.width ? { width: next.width } : {}),
+        ...(next.height ? { height: next.height } : {}),
       },
       historyCmd,
       { type: "persistSnapshot" },
@@ -200,6 +241,10 @@ export function handlePopstate(state, { historyState, locationHref }) {
       url: locationHref ?? top.url,
       variant: top.variant,
       dismissible: top.dismissible,
+      size: top.size,
+      side: top.side,
+      width: top.width,
+      height: top.height,
     });
     const newLayers = Object.freeze([
       ...state.layers.slice(0, -1),
@@ -215,6 +260,10 @@ export function handlePopstate(state, { historyState, locationHref }) {
           depth: currentDepth,
           variant: updatedTop.variant,
           dismissible: updatedTop.dismissible,
+          ...(updatedTop.size ? { size: updatedTop.size } : {}),
+          ...(updatedTop.side ? { side: updatedTop.side } : {}),
+          ...(updatedTop.width ? { width: updatedTop.width } : {}),
+          ...(updatedTop.height ? { height: updatedTop.height } : {}),
         },
         { type: "persistSnapshot" },
       ],

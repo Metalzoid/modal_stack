@@ -14,15 +14,16 @@ module ModalStack
     # variant:     :modal (default) | :drawer | :bottom_sheet | :confirmation
     # dismissible: true (default) | false
     # url:         override the URL associated with this layer (defaults to the request path)
-    # side:        only meaningful for :drawer — :left | :right
+    # side:        only meaningful for :drawer — :left | :right | :top | :bottom
     # size:        :sm | :md | :lg | :xl | string
-    def modal_push(content = nil, variant: :modal, dismissible: true, url: nil, side: nil, size: nil, **rendering, &block)
+    # width/height: CSS length values (e.g. "42rem", "70vh", "min(90vw, 56rem)")
+    def modal_push(content = nil, variant: :modal, dismissible: true, url: nil, side: nil, size: nil, width: nil, height: nil, **rendering, &block)
       template = render_template(ModalStack::TARGET_ID, content, **rendering, &block)
       turbo_stream_action_tag(
         :modal_push,
         target: ModalStack::TARGET_ID,
         template: template,
-        data: modal_data(variant: variant, dismissible: dismissible, url: url, side: side, size: size)
+        data: modal_data(variant: variant, dismissible: dismissible, url: url, side: side, size: size, width: width, height: height)
       )
     end
 
@@ -34,7 +35,7 @@ module ModalStack
     # Replace the top layer's content. Defaults to history.replaceState
     # (no new history entry). Pass history: :push for a wizard-step semantic
     # where browser-back returns to the previous step.
-    def modal_replace(content = nil, variant: nil, dismissible: nil, url: nil, history: :replace, layer_id: nil, **rendering, &block)
+    def modal_replace(content = nil, variant: nil, dismissible: nil, url: nil, history: :replace, layer_id: nil, side: nil, size: nil, width: nil, height: nil, **rendering, &block)
       unless HISTORY_MODES.include?(history)
         raise ArgumentError, "history: must be #{HISTORY_MODES.inspect}, got #{history.inspect}"
       end
@@ -48,6 +49,10 @@ module ModalStack
           variant: variant,
           dismissible: dismissible,
           url: url,
+          side: side,
+          size: size,
+          width: width,
+          height: height,
           history_mode: history,
           layer_id: layer_id
         )

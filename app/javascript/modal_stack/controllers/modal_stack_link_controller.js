@@ -19,6 +19,8 @@ export class ModalStackLinkController extends Controller {
       variant: ds.modalStackLinkVariant || "modal",
       side: ds.modalStackLinkSide,
       size: ds.modalStackLinkSize,
+      width: ds.modalStackLinkWidth,
+      height: ds.modalStackLinkHeight,
       dismissible: ds.modalStackLinkDismissible !== "false",
     });
   }
