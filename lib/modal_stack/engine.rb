@@ -4,8 +4,6 @@ require "rails/engine"
 
 module ModalStack
   class Engine < ::Rails::Engine
-    config.eager_load_namespaces << ModalStack
-
     initializer "modal_stack.helpers" do
       ActiveSupport.on_load(:action_view) do
         require "modal_stack/helpers/modal_link_helper"
