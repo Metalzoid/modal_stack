@@ -32,6 +32,12 @@ RSpec.describe ModalStack::Helpers::ModalStackContainerHelper do
     expect(out).to include('data-modal-stack-side="right"')
   end
 
+  it "exposes optional width and height data attributes" do
+    out = view.modal_stack_container(width: "56rem", height: "72vh") { "x" }
+    expect(out).to include('data-modal-stack-width="56rem"')
+    expect(out).to include('data-modal-stack-height="72vh"')
+  end
+
   it "merges caller-supplied class and data attributes" do
     out = view.modal_stack_container(html: { class: "custom-class", data: { tracking: "edit" } }) { "x" }
     expect(out).to include("custom-class")

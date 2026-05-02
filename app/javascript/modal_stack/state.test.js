@@ -85,6 +85,95 @@ describe("push", () => {
     ]);
   });
 
+  test("preserves side and size for drawer layers", () => {
+    const { state, commands } = push(freshStack(), {
+      id: "L1",
+      url: "/modal_stack/details",
+      variant: "drawer",
+      side: "right",
+      size: "md",
+    });
+
+    expect(state.layers[0]).toMatchObject({
+      id: "L1",
+      variant: "drawer",
+      side: "right",
+      size: "md",
+    });
+    expect(commands[0]).toMatchObject({
+      type: "mountLayer",
+      layerId: "L1",
+      variant: "drawer",
+      side: "right",
+      size: "md",
+    });
+  });
+
+  test("defaults drawer side to right when missing", () => {
+    const { state, commands } = push(freshStack(), {
+      id: "L1",
+      url: "/modal_stack/details",
+      variant: "drawer",
+    });
+
+    expect(state.layers[0]).toMatchObject({
+      variant: "drawer",
+      side: "right",
+    });
+    expect(commands[0]).toMatchObject({
+      type: "mountLayer",
+      variant: "drawer",
+      side: "right",
+    });
+  });
+
+  test("supports top and bottom drawer sides", () => {
+    const topLayerResult = push(freshStack(), {
+      id: "L1",
+      url: "/modal_stack/details",
+      variant: "drawer",
+      side: "top",
+    });
+    expect(topLayerResult.state.layers[0].side).toBe("top");
+
+    const bottomLayerResult = push(freshStack(), {
+      id: "L1",
+      url: "/modal_stack/details",
+      variant: "drawer",
+      side: "bottom",
+    });
+    expect(bottomLayerResult.state.layers[0].side).toBe("bottom");
+  });
+
+  test("rejects unknown drawer side", () => {
+    expect(() =>
+      push(freshStack(), {
+        id: "L1",
+        url: "/modal_stack/details",
+        variant: "drawer",
+        side: "middle",
+      }),
+    ).toThrow(/unknown drawer side/);
+  });
+
+  test("passes custom width and height to mount command", () => {
+    const { state, commands } = push(freshStack(), {
+      id: "L1",
+      url: "/modal_stack/details",
+      variant: "drawer",
+      width: "80vw",
+      height: "24rem",
+    });
+    expect(state.layers[0]).toMatchObject({
+      width: "80vw",
+      height: "24rem",
+    });
+    expect(commands[0]).toMatchObject({
+      width: "80vw",
+      height: "24rem",
+    });
+  });
+
   test("second layer mounts before inerting the previous top, no showDialog", () => {
     const first = pushed(freshStack()).state;
     const { state, commands } = push(first, { id: "L2", url: "/clients/new" });
@@ -186,6 +275,34 @@ describe("replaceTop", () => {
       },
       { type: "persistSnapshot" },
     ]);
+  });
+
+  test("replaceTop keeps side and size when not patched", () => {
+    const first = push(freshStack(), {
+      id: "L1",
+      url: "/modal_stack/details",
+      variant: "drawer",
+      side: "right",
+      size: "md",
+    }).state;
+
+    const { state, commands } = replaceTop(first, { url: "/modal_stack/details?x=1" });
+
+    expect(state.layers[0]).toMatchObject({
+      id: "L1",
+      variant: "drawer",
+      side: "right",
+      size: "md",
+      url: "/modal_stack/details?x=1",
+    });
+    expect(commands[0]).toMatchObject({
+      type: "morphTopLayer",
+      layerId: "L1",
+      variant: "drawer",
+      side: "right",
+      size: "md",
+      url: "/modal_stack/details?x=1",
+    });
   });
 
   test("historyMode push assigns a new layerId", () => {

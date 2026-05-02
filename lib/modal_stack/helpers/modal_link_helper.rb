@@ -25,6 +25,8 @@ module ModalStack
         as = html_options.delete(:as)
         side = html_options.delete(:side)
         size = html_options.delete(:size)
+        width = html_options.delete(:width)
+        height = html_options.delete(:height)
         dismissible = html_options.delete(:dismissible)
 
         existing_data = html_options[:data] || {}
@@ -35,6 +37,8 @@ module ModalStack
           modal_stack_link_variant: as,
           modal_stack_link_side: side,
           modal_stack_link_size: size,
+          modal_stack_link_width: width,
+          modal_stack_link_height: height,
           modal_stack_link_dismissible: dismissible.nil? ? nil : dismissible.to_s
         }.compact
 

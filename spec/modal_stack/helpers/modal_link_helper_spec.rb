@@ -38,18 +38,22 @@ RSpec.describe ModalStack::Helpers::ModalLinkHelper do
     expect(out).to include('click-&gt;modal-stack-link#open')
   end
 
-  it "extracts variant/side/size/dismissible into modal_stack_link data" do
+  it "extracts variant/side/size/width/height/dismissible into modal_stack_link data" do
     out = view.modal_link_to(
       "Side",
       "/x",
       as: :drawer,
       side: :right,
       size: :lg,
+      width: "48rem",
+      height: "70vh",
       dismissible: false
     )
     expect(out).to include('data-modal-stack-link-variant="drawer"')
     expect(out).to include('data-modal-stack-link-side="right"')
     expect(out).to include('data-modal-stack-link-size="lg"')
+    expect(out).to include('data-modal-stack-link-width="48rem"')
+    expect(out).to include('data-modal-stack-link-height="70vh"')
     expect(out).to include('data-modal-stack-link-dismissible="false"')
   end
 

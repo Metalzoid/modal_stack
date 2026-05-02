@@ -60,6 +60,21 @@ RSpec.describe ModalStack::TurboStreamsExtension do
       expect(out).not_to include('data-url="')
     end
 
+    it "passes through drawer-specific side/size and custom dimensions" do
+      out = builder.modal_push(partial: "x", variant: :drawer, side: :top, size: :lg, width: "80vw", height: "24rem").to_s
+      expect(out).to include('data-side="top"')
+      expect(out).to include('data-size="lg"')
+      expect(out).to include('data-width="80vw"')
+      expect(out).to include('data-height="24rem"')
+    end
+
+    it "supports top and bottom drawer sides" do
+      out_top = builder.modal_push(partial: "x", variant: :drawer, side: :top).to_s
+      out_bottom = builder.modal_push(partial: "x", variant: :drawer, side: :bottom).to_s
+      expect(out_top).to include('data-side="top"')
+      expect(out_bottom).to include('data-side="bottom"')
+    end
+
     it "passes through drawer-specific side and size" do
       out = builder.modal_push(partial: "x", variant: :drawer, side: :right, size: :lg).to_s
       expect(out).to include('data-side="right"')
@@ -95,6 +110,14 @@ RSpec.describe ModalStack::TurboStreamsExtension do
     it "passes explicit layer_id" do
       out = builder.modal_replace(partial: "x", layer_id: "L1b").to_s
       expect(out).to include('data-layer-id="L1b"')
+    end
+
+    it "passes side/size/width/height patch attributes" do
+      out = builder.modal_replace(partial: "x", side: :left, size: :sm, width: "28rem", height: "100vh").to_s
+      expect(out).to include('data-side="left"')
+      expect(out).to include('data-size="sm"')
+      expect(out).to include('data-width="28rem"')
+      expect(out).to include('data-height="100vh"')
     end
   end
 

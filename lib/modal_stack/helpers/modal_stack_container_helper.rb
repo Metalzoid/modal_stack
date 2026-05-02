@@ -12,7 +12,7 @@ module ModalStack
     module ModalStackContainerHelper
       DEFAULT_SIZE = :md
 
-      def modal_stack_container(size: DEFAULT_SIZE, dismissible: true, variant: :modal, side: nil, html: {}, &block)
+      def modal_stack_container(size: DEFAULT_SIZE, dismissible: true, variant: :modal, side: nil, width: nil, height: nil, html: {}, &block)
         classes = ["modal-stack__panel", "modal-stack__panel--#{variant}", "modal-stack__panel--size-#{size}"]
         classes << "modal-stack__panel--side-#{side}" if side
 
@@ -22,7 +22,9 @@ module ModalStack
             modal_stack_size: size,
             modal_stack_variant: variant,
             modal_stack_dismissible: dismissible.to_s,
-            modal_stack_side: side
+            modal_stack_side: side,
+            modal_stack_width: width,
+            modal_stack_height: height
           }.merge(html.fetch(:data, {})).compact
         }.merge(html.except(:class, :data))
 

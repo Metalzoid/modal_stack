@@ -118,6 +118,10 @@ function layerFromStreamElement(el) {
     id: el.dataset.layerId || generateLayerId(),
     url: el.dataset.url || window.location.href,
     variant: el.dataset.variant || "modal",
+    side: el.dataset.side,
+    size: el.dataset.size,
+    width: el.dataset.width,
+    height: el.dataset.height,
     dismissible: el.dataset.dismissible !== "false",
   };
 }
@@ -127,6 +131,10 @@ function layerPatchFromStreamElement(el) {
   if (el.dataset.layerId) patch.id = el.dataset.layerId;
   if (el.dataset.url) patch.url = el.dataset.url;
   if (el.dataset.variant) patch.variant = el.dataset.variant;
+  if (el.dataset.side) patch.side = el.dataset.side;
+  if (el.dataset.size) patch.size = el.dataset.size;
+  if (el.dataset.width) patch.width = el.dataset.width;
+  if (el.dataset.height) patch.height = el.dataset.height;
   if (el.dataset.dismissible != null) {
     patch.dismissible = el.dataset.dismissible !== "false";
   }

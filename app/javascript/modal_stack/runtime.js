@@ -49,19 +49,19 @@ export class BrowserRuntime {
     else layer.removeAttribute("inert");
   }
 
-  async mountLayer({ layerId, url, depth, variant, dismissible, html, fragment }) {
+  async mountLayer({ layerId, url, depth, variant, dismissible, size, side, width, height, html, fragment }) {
     const frag = await this.#resolveFragment({ url, html, fragment });
     const layer = this.document.createElement("div");
-    this.#applyLayerAttrs(layer, { layerId, depth, variant, dismissible });
+    this.#applyLayerAttrs(layer, { layerId, depth, variant, dismissible, size, side, width, height });
     layer.append(...frag.childNodes);
     this.dialog.appendChild(layer);
   }
 
-  async morphTopLayer({ layerId, url, depth, variant, dismissible, html, fragment }) {
+  async morphTopLayer({ layerId, url, depth, variant, dismissible, size, side, width, height, html, fragment }) {
     const frag = await this.#resolveFragment({ url, html, fragment });
     const layer = this.#topLayer();
     if (!layer) return;
-    this.#applyLayerAttrs(layer, { layerId, depth, variant, dismissible });
+    this.#applyLayerAttrs(layer, { layerId, depth, variant, dismissible, size, side, width, height });
     layer.replaceChildren(...frag.childNodes);
   }
 
@@ -133,12 +133,30 @@ export class BrowserRuntime {
     return layers[layers.length - 1] ?? null;
   }
 
-  #applyLayerAttrs(layer, { layerId, depth, variant, dismissible }) {
+  #applyLayerAttrs(layer, { layerId, depth, variant, dismissible, size, side, width, height }) {
     layer.dataset.modalStackTarget = "layer";
     layer.dataset.layerId = layerId;
     layer.dataset.depth = String(depth);
     layer.dataset.variant = variant;
     layer.dataset.dismissible = String(dismissible);
+    if (size) layer.dataset.modalStackSize = size;
+    else delete layer.dataset.modalStackSize;
+    if (side) layer.dataset.side = side;
+    else delete layer.dataset.side;
+    if (width) {
+      layer.dataset.modalStackWidth = width;
+      layer.style.width = width;
+    } else {
+      delete layer.dataset.modalStackWidth;
+      layer.style.removeProperty("width");
+    }
+    if (height) {
+      layer.dataset.modalStackHeight = height;
+      layer.style.height = height;
+    } else {
+      delete layer.dataset.modalStackHeight;
+      layer.style.removeProperty("height");
+    }
   }
 
   async fetchFragment(url) {
