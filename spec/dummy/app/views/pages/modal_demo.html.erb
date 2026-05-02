@@ -1,0 +1,5 @@
+<%= modal_stack_container do %>
+  <h2 id="modal-title">Edit thing</h2>
+  <p>Modal body content.</p>
+  <%= modal_link_to "Push another", modal_bottom_sheet_path, as: :bottom_sheet, id: "open-nested" %>
+<% end %>

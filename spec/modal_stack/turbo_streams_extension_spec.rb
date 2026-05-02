@@ -87,7 +87,7 @@ RSpec.describe ModalStack::TurboStreamsExtension do
       out = builder.modal_pop.to_s
       expect(out).to include('action="modal_pop"')
       expect(out).to include('target="modal-stack-root"')
-      expect(out).not_to include('data-partial=')
+      expect(out).not_to include("data-partial=")
     end
   end
 

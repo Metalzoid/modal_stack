@@ -33,4 +33,4 @@ end
 
 require_relative "modal_stack/configuration"
 require_relative "modal_stack/initializer_version_check"
-require "modal_stack/engine" if defined?(::Rails::Engine)
+require "modal_stack/engine" if defined?(Rails::Engine)

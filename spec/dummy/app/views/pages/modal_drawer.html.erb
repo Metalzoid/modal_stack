@@ -1,0 +1,5 @@
+<% side = (params[:side] || :right).to_sym %>
+<%= modal_stack_container variant: :drawer, side: side do %>
+  <h2>Drawer (<%= side %>)</h2>
+  <p>Drawer body for side <%= side %>.</p>
+<% end %>

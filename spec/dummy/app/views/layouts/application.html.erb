@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Dummy</title>
+    <%= csrf_meta_tags %>
+    <%= csp_meta_tag %>
+    <%= modal_stack_stylesheet_link_tag %>
+    <%= javascript_importmap_tags %>
+  </head>
+  <body>
+    <%= yield %>
+    <%= modal_stack_dialog_tag %>
+  </body>
+</html>

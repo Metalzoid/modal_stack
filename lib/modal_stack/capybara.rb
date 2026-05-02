@@ -22,38 +22,39 @@ module ModalStack
     #   within_modal(depth: 2) { ... }   # second from the bottom
     #
     # When `depth:` is omitted the top-most layer is targeted.
-    def within_modal(depth: nil, **opts, &block)
-      layers = ::Capybara.current_session.all(:css, LAYER_SELECTOR, minimum: 1, **opts)
+    def within_modal(depth: nil, **, &)
+      layers = ::Capybara.current_session.all(:css, LAYER_SELECTOR, minimum: 1, **)
       target = depth ? layers[depth - 1] : layers.last
       raise ::Capybara::ElementNotFound, "no modal_stack layer at depth #{depth}" unless target
-      ::Capybara.current_session.within(target, &block)
+
+      ::Capybara.current_session.within(target, &)
     end
 
     # Capybara matcher: passes when the modal_stack <dialog> is open.
     #
     #   expect(page).to have_modal_open
-    def have_modal_open(**opts)
-      have_css("#{DIALOG_SELECTOR}[open]", **opts)
+    def have_modal_open(**)
+      have_css("#{DIALOG_SELECTOR}[open]", **)
     end
 
-    def have_no_modal_open(**opts)
-      have_no_css("#{DIALOG_SELECTOR}[open]", **opts)
+    def have_no_modal_open(**)
+      have_no_css("#{DIALOG_SELECTOR}[open]", **)
     end
 
     # Capybara matcher: assert the live (non-leaving) layer count.
     #
     #   expect(page).to have_modal_stack(depth: 2)
     #   expect(page).to have_modal_stack            # any open layer
-    def have_modal_stack(depth: nil, **opts)
+    def have_modal_stack(depth: nil, **)
       if depth
-        have_css(LAYER_SELECTOR, count: depth, **opts)
+        have_css(LAYER_SELECTOR, count: depth, **)
       else
-        have_css(LAYER_SELECTOR, **opts)
+        have_css(LAYER_SELECTOR, **)
       end
     end
 
-    def have_no_modal_stack(**opts)
-      have_no_css(LAYER_SELECTOR, **opts)
+    def have_no_modal_stack(**)
+      have_no_css(LAYER_SELECTOR, **)
     end
 
     # Send ESC to the dialog so the runtime pops the top layer (honors
@@ -69,6 +70,7 @@ module ModalStack
       session = ::Capybara.current_session
       max.times do
         break unless session.has_css?(LAYER_SELECTOR, wait: 0)
+
         close_modal
         session.has_no_css?(LAYER_SELECTOR, wait: 1)
       end

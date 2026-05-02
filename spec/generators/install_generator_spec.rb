@@ -119,10 +119,10 @@ RSpec.describe ModalStack::Generators::InstallGenerator do
       run_generator
       run_generator
 
-      expect(read_file("config/importmap.rb").scan(/pin "modal_stack"/).size).to eq(1)
-      expect(read_file("app/javascript/application.js").scan(/from "modal_stack"/).size).to eq(1)
-      expect(read_file("app/views/layouts/application.html.erb").scan(/modal_stack_stylesheet_link_tag/).size).to eq(1)
-      expect(read_file("app/views/layouts/application.html.erb").scan(/modal_stack_dialog_tag/).size).to eq(1)
+      expect(read_file("config/importmap.rb").scan('pin "modal_stack"').size).to eq(1)
+      expect(read_file("app/javascript/application.js").scan('from "modal_stack"').size).to eq(1)
+      expect(read_file("app/views/layouts/application.html.erb").scan("modal_stack_stylesheet_link_tag").size).to eq(1)
+      expect(read_file("app/views/layouts/application.html.erb").scan("modal_stack_dialog_tag").size).to eq(1)
     end
 
     it "honors --skip-layout" do

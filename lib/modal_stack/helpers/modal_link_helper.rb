@@ -12,49 +12,52 @@ module ModalStack
     module ModalLinkHelper
       LINK_CONTROLLER = "modal-stack-link"
       LINK_CLICK_ACTION = "click->modal-stack-link#open"
+      MODAL_OPTION_KEYS = %i[as side size width height dismissible].freeze
 
       def modal_link_to(name = nil, options = nil, html_options = nil, &block)
-        html_options, options, name = options, name, block if block_given?
-        html_options ||= {}
-        html_options = html_options.dup
-
-        if hotwire_native_request?
-          return link_to(name, options, html_options, &block)
+        if block_given?
+          html_options = options
+          options = name
+          name = block
         end
+        html_options = (html_options || {}).dup
 
-        as = html_options.delete(:as)
-        side = html_options.delete(:side)
-        size = html_options.delete(:size)
-        width = html_options.delete(:width)
-        height = html_options.delete(:height)
-        dismissible = html_options.delete(:dismissible)
+        return link_to(name, options, html_options, &block) if hotwire_native_request?
 
-        existing_data = html_options[:data] || {}
-        merged_controller = [existing_data[:controller], LINK_CONTROLLER].compact.join(" ").strip
-        merged_action = [existing_data[:action], LINK_CLICK_ACTION].compact.join(" ").strip
-
-        modal_attrs = {
-          modal_stack_link_variant: as,
-          modal_stack_link_side: side,
-          modal_stack_link_size: size,
-          modal_stack_link_width: width,
-          modal_stack_link_height: height,
-          modal_stack_link_dismissible: dismissible.nil? ? nil : dismissible.to_s
-        }.compact
-
-        html_options[:data] = existing_data.merge(
-          controller: merged_controller,
-          action: merged_action,
-          **modal_attrs
-        )
+        modal_options = html_options.extract!(*MODAL_OPTION_KEYS)
+        html_options[:data] = build_modal_link_data(html_options[:data] || {}, modal_options)
 
         link_to(name, options, html_options, &block)
       end
 
       private
 
+      def build_modal_link_data(existing_data, modal_options)
+        existing_data.merge(
+          controller: merged_token(existing_data[:controller], LINK_CONTROLLER),
+          action: merged_token(existing_data[:action], LINK_CLICK_ACTION),
+          **modal_link_data_attrs(modal_options)
+        )
+      end
+
+      def modal_link_data_attrs(opts)
+        {
+          modal_stack_link_variant: opts[:as],
+          modal_stack_link_side: opts[:side],
+          modal_stack_link_size: opts[:size],
+          modal_stack_link_width: opts[:width],
+          modal_stack_link_height: opts[:height],
+          modal_stack_link_dismissible: opts[:dismissible]&.to_s
+        }.compact
+      end
+
+      def merged_token(existing, addition)
+        [existing, addition].compact.join(" ").strip
+      end
+
       def hotwire_native_request?
         return false unless respond_to?(:request) && request
+
         request.user_agent.to_s.include?("Hotwire Native")
       end
     end

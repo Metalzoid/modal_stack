@@ -10,11 +10,11 @@ module ModalStack
       #
       # Returns an empty SafeBuffer when `config.css_provider = :none`,
       # so apps can call this unconditionally.
-      def modal_stack_stylesheet_link_tag(**options)
+      def modal_stack_stylesheet_link_tag(**)
         provider = ModalStack.configuration.css_provider
         return ActiveSupport::SafeBuffer.new if provider == :none
 
-        stylesheet_link_tag("modal_stack/#{provider}", **options)
+        stylesheet_link_tag("modal_stack/#{provider}", **)
       end
 
       # Renders the singleton <dialog> root that the modal-stack Stimulus

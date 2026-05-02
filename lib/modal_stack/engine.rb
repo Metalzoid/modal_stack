@@ -31,6 +31,7 @@ module ModalStack
 
     initializer "modal_stack.assets" do |app|
       next unless app.config.respond_to?(:assets)
+
       app.config.assets.paths << root.join("app", "javascript").to_s
       app.config.assets.paths << root.join("app", "assets", "javascripts").to_s
       app.config.assets.paths << root.join("app", "assets", "stylesheets").to_s

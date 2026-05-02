@@ -8,6 +8,7 @@ RSpec.describe ModalStack::Helpers::ModalLinkHelper do
   let(:view) do
     Class.new(ActionView::Base) do
       include ModalStack::Helpers::ModalLinkHelper
+
       attr_accessor :request
     end.with_empty_template_cache.new(
       ActionView::LookupContext.new([]),
@@ -34,8 +35,8 @@ RSpec.describe ModalStack::Helpers::ModalLinkHelper do
       data: { controller: "tooltip", action: "mouseenter->tooltip#show" }
     )
     expect(out).to include('data-controller="tooltip modal-stack-link"')
-    expect(out).to include('mouseenter-&gt;tooltip#show')
-    expect(out).to include('click-&gt;modal-stack-link#open')
+    expect(out).to include("mouseenter-&gt;tooltip#show")
+    expect(out).to include("click-&gt;modal-stack-link#open")
   end
 
   it "extracts variant/side/size/width/height/dismissible into modal_stack_link data" do
@@ -61,7 +62,7 @@ RSpec.describe ModalStack::Helpers::ModalLinkHelper do
     allow(request_double).to receive(:user_agent).and_return("Mozilla/5.0 Hotwire Native iOS")
     out = view.modal_link_to("Edit", "/projects/42/edit", as: :drawer)
     expect(out).to include('href="/projects/42/edit"')
-    expect(out).not_to include('data-controller')
-    expect(out).not_to include('modal-stack-link')
+    expect(out).not_to include("data-controller")
+    expect(out).not_to include("modal-stack-link")
   end
 end

@@ -14,22 +14,24 @@ module ModalStack
       class_option :mode, type: :string, default: "auto", enum: ASSETS_MODES,
                           desc: "JS asset strategy"
       class_option :css_provider, type: :string, default: "tailwind",
-                                   enum: CSS_PROVIDERS,
-                                   desc: "CSS preset bundled with the install"
+                                  enum: CSS_PROVIDERS,
+                                  desc: "CSS preset bundled with the install"
       class_option :skip_layout, type: :boolean, default: false,
-                                  desc: "Skip injecting helpers / dialog into application layout"
+                                 desc: "Skip injecting helpers / dialog into application layout"
       class_option :skip_js, type: :boolean, default: false,
-                              desc: "Skip JS pin / install wiring"
+                             desc: "Skip JS pin / install wiring"
       class_option :skip_initializer, type: :boolean, default: false,
-                                       desc: "Skip generating config/initializers/modal_stack.rb"
+                                      desc: "Skip generating config/initializers/modal_stack.rb"
 
       def copy_initializer
         return if options[:skip_initializer]
+
         template "initializer.rb", "config/initializers/modal_stack.rb"
       end
 
       def configure_javascript
         return if options[:skip_js]
+
         case resolved_mode
         when "importmap" then install_importmap
         when "jsbundling" then install_jsbundling
@@ -41,9 +43,7 @@ module ModalStack
         return if options[:skip_layout]
 
         layout = "app/views/layouts/application.html.erb"
-        unless file_exists?(layout)
-          return say_status(:skip, "#{layout} not found", :yellow)
-        end
+        return say_status(:skip, "#{layout} not found", :yellow) unless file_exists?(layout)
 
         inject_stylesheet_helper(layout)
         inject_dialog_helper(layout)
@@ -90,6 +90,7 @@ module ModalStack
                               !file_exists?("config/importmap.rb") &&
                               !file_exists?("package.json")
         return "jsbundling" if file_exists?("package.json")
+
         "importmap"
       end
 
@@ -194,11 +195,14 @@ module ModalStack
 
       def layout_inject_javascript_tag
         return if options[:skip_layout]
+
         layout = "app/views/layouts/application.html.erb"
         return unless file_exists?(layout)
+
         content = File.read(File.join(destination_root, layout))
         return if content.include?("javascript_include_tag \"modal_stack\"") ||
                   content.include?("javascript_include_tag 'modal_stack'")
+
         inject_into_file layout, before: %r{</head>} do
           "    <%= javascript_include_tag \"modal_stack\" %>\n  "
         end
@@ -208,6 +212,7 @@ module ModalStack
         full_path = File.join(destination_root, path)
         content = File.read(full_path)
         return if content.include?(line)
+
         append_to_file path, "\n#{line}\n"
       end
 

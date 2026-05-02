@@ -1,29 +1,121 @@
-name: Ruby
+name: CI
 
 on:
   push:
-    branches:
-      - master
-
+    branches: [main, master]
   pull_request:
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
-    name: Ruby ${{ matrix.ruby }}
+    name: Ruby ${{ matrix.ruby }} / ${{ matrix.gemfile }}
     strategy:
+      fail-fast: false
       matrix:
-        ruby:
-          - '3.3.5'
-
+        ruby: ['3.2', '3.3', '3.4', '3.5', '4.0']
+        gemfile:
+          - gemfiles/rails_7_2.gemfile
+          - gemfiles/rails_8_0.gemfile
+          - gemfiles/rails_8_1.gemfile
+          - gemfiles/rails_8_1_sprockets.gemfile
+        exclude:
+          # Rails 7.2 predates Ruby 4.0 — skip that pairing.
+          - ruby: '4.0'
+            gemfile: gemfiles/rails_7_2.gemfile
+    env:
+      BUNDLE_GEMFILE: ${{ github.workspace }}/${{ matrix.gemfile }}
+      # Nokogiri ships precompiled native gems, but not for every Ruby.
+      # Force a source build when no matching binary exists (e.g. Ruby 3.5).
+      BUNDLE_FORCE_RUBY_PLATFORM: ${{ matrix.ruby == '3.5' && 'true' || '' }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
+      - uses: actions/checkout@v6
+      - uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
-      - name: Run the default task
-        run: bundle exec rake
+      # `chromium-browser` on Ubuntu pulls the Snap transitional package and
+      # blocks CI when the snap store is unreachable. Google Chrome stable is
+      # a plain .deb from Google's APT repo — same engine, no snap.
+      - name: Install Google Chrome for Cuprite
+        run: |
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ca-certificates curl gnupg
+          # Non-interactive CI has no /dev/tty — gpg must run in batch mode.
+          curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+            | sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/google-chrome.gpg
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" \
+            | sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends google-chrome-stable
+      - name: Run RSpec
+        run: bundle exec rspec
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+      - name: RuboCop
+        run: bundle exec rubocop --no-server
+
+  js-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Run bun tests
+        run: bun test
+
+  js-build-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Smoke-test the JS bundle
+        run: bun run build:check
+
+  # The committed app/assets/javascripts/modal_stack.js is the importmap
+  # entry point. Catch PRs that touched the JS source without rebuilding it.
+  bundle-freshness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Rebuild bundle and check for diff
+        run: |
+          bin/build
+          git diff --exit-code app/assets/javascripts/modal_stack.js
+
+  # Single aggregator for branch protection — require this one check
+  # rather than every individual matrix job.
+  ci-success:
+    if: always()
+    needs: [test, lint, js-test, js-build-check, bundle-freshness]
+    runs-on: ubuntu-latest
+    env:
+      TEST_RESULT: ${{ needs.test.result }}
+      LINT_RESULT: ${{ needs.lint.result }}
+      JS_TEST_RESULT: ${{ needs.js-test.result }}
+      JS_BUILD_CHECK_RESULT: ${{ needs.js-build-check.result }}
+      BUNDLE_FRESHNESS_RESULT: ${{ needs.bundle-freshness.result }}
+    steps:
+      - name: Verify all required jobs passed
+        run: |
+          if [ "$TEST_RESULT" != "success" ] \
+             || [ "$LINT_RESULT" != "success" ] \
+             || [ "$JS_TEST_RESULT" != "success" ] \
+             || [ "$JS_BUILD_CHECK_RESULT" != "success" ] \
+             || [ "$BUNDLE_FRESHNESS_RESULT" != "success" ]; then
+            echo "One or more required jobs failed"
+            exit 1
+          fi
