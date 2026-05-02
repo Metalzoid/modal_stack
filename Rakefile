@@ -7,6 +7,9 @@ RSpec::Core::RakeTask.new(:spec)
 
 require "rubocop/rake_task"
 
-RuboCop::RakeTask.new
+RuboCop::RakeTask.new do |task|
+  # Avoid inheriting runner-level/home RuboCop configs in CI.
+  task.options = ["--config", ".rubocop.yml"]
+end
 
 task default: %i[spec rubocop]
