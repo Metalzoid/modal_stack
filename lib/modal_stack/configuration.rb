@@ -50,33 +50,29 @@ module ModalStack
 
     def css_provider=(value)
       value = value.to_sym
-      unless CSS_PROVIDERS.include?(value)
-        raise ArgumentError, "css_provider must be one of #{CSS_PROVIDERS.inspect}, got #{value.inspect}"
-      end
+      raise ArgumentError, "css_provider must be one of #{CSS_PROVIDERS.inspect}, got #{value.inspect}" unless CSS_PROVIDERS.include?(value)
+
       @css_provider = value
     end
 
     def assets_mode=(value)
       value = value.to_sym
-      unless ASSETS_MODES.include?(value)
-        raise ArgumentError, "assets_mode must be one of #{ASSETS_MODES.inspect}, got #{value.inspect}"
-      end
+      raise ArgumentError, "assets_mode must be one of #{ASSETS_MODES.inspect}, got #{value.inspect}" unless ASSETS_MODES.include?(value)
+
       @assets_mode = value
     end
 
     def default_variant=(value)
       value = value.to_sym
-      unless VARIANTS.include?(value)
-        raise ArgumentError, "default_variant must be one of #{VARIANTS.inspect}, got #{value.inspect}"
-      end
+      raise ArgumentError, "default_variant must be one of #{VARIANTS.inspect}, got #{value.inspect}" unless VARIANTS.include?(value)
+
       @default_variant = value
     end
 
     def default_size=(value)
       value = value.to_sym
-      unless SIZES.include?(value)
-        raise ArgumentError, "default_size must be one of #{SIZES.inspect}, got #{value.inspect}"
-      end
+      raise ArgumentError, "default_size must be one of #{SIZES.inspect}, got #{value.inspect}" unless SIZES.include?(value)
+
       @default_size = value
     end
 

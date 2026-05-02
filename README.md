@@ -1,43 +1,99 @@
-# ModalStack
+# modal_stack
 
-TODO: Delete this and the text below, and describe your gem
+[![CI](https://github.com/Metalzoid/modal_stack/actions/workflows/main.yml/badge.svg)](https://github.com/Metalzoid/modal_stack/actions)
 
-Welcome to your new gem! In this directory, you'll find the files you need to be able to package up your Ruby library into a gem. Put your Ruby code in the file `lib/modal_stack`. To experiment with that code, run `bin/console` for an interactive prompt.
+Stackable modals, drawers, and bottom sheets for Hotwire-powered Rails apps.
+Push N layers, deep-link the top of the stack via native Rails URLs, get full
+browser back/forward support, and drive everything from imperative Turbo
+Stream actions (`modal_push`, `modal_pop`, `modal_replace`).
 
 ## Installation
 
-TODO: Replace `UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG` with your gem name right after releasing it to RubyGems.org. Please do not do it earlier due to security reasons. Alternatively, replace this section with instructions to install your gem from git if you don't plan to release to RubyGems.org.
+Add to your Gemfile:
 
-Install the gem and add to the application's Gemfile by executing:
-
-```bash
-bundle add UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG
+```ruby
+gem "modal_stack"
 ```
 
-If bundler is not being used to manage dependencies, install the gem by executing:
+Then run:
 
 ```bash
-gem install UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG
+bundle install
+bin/rails generate modal_stack:install
 ```
+
+The generator detects your asset pipeline (importmap / jsbundling /
+sprockets), wires the helpers into your application layout, and writes
+`config/initializers/modal_stack.rb`.
 
 ## Usage
 
-TODO: Write usage instructions here
+```erb
+<%= modal_link_to "Edit", edit_project_path(@project) %>
+<%= modal_link_to "Details", project_path(@project), as: :drawer, side: :right %>
+```
+
+```ruby
+class ProjectsController < ApplicationController
+  modal_stack_layout
+
+  def update
+    if @project.update(project_params)
+      redirect_to @project
+    else
+      render_modal :edit, status: :unprocessable_entity
+    end
+  end
+end
+```
+
+From a Turbo Stream:
+
+```ruby
+respond_to do |format|
+  format.turbo_stream do
+    render turbo_stream: turbo_stream.modal_push(template: "items/new",
+                                                 variant: :drawer, side: :right)
+  end
+end
+```
 
 ## Development
 
-After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake spec` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
+After checking out the repo, run `bin/setup` to install dependencies. Then:
 
-To install this gem onto your local machine, run `bundle exec rake install`. To release a new version, update the version number in `version.rb`, and then run `bundle exec rake release`, which will create a git tag for the version, push git commits and the created tag, and push the `.gem` file to [rubygems.org](https://rubygems.org).
+```bash
+bundle exec rake          # spec + rubocop
+bundle exec rspec         # Ruby specs only (incl. system specs via Cuprite)
+bun test                  # JS unit tests (state, orchestrator, runtime)
+bin/build                 # rebuild app/assets/javascripts/modal_stack.js
+```
 
-## Contributing
+System specs require Google Chrome locally:
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/[USERNAME]/modal_stack. This project is intended to be a safe, welcoming space for collaboration, and contributors are expected to adhere to the [code of conduct](https://github.com/[USERNAME]/modal_stack/blob/master/CODE_OF_CONDUCT.md).
+```bash
+brew install --cask google-chrome
+```
+
+To test against multiple Rails versions locally:
+
+```bash
+bundle exec appraisal install
+BUNDLE_GEMFILE=gemfiles/rails_8_1.gemfile bundle exec rake
+```
+
+## Releasing
+
+1. Bump `lib/modal_stack/version.rb` to the next semantic version.
+2. Move `[Unreleased]` items to a new dated section in `CHANGELOG.md`.
+3. Push to `main`. The release workflow will:
+   - Create and push the `vX.Y.Z` annotated tag.
+   - Build the gem and create a GitHub Release with auto-generated notes.
+   - Publish to RubyGems via OIDC trusted publishing.
+
+To re-release an existing version, push `vX.Y.Z` manually — the workflow
+re-runs against the tag.
 
 ## License
 
-The gem is available as open source under the terms of the [MIT License](https://opensource.org/licenses/MIT).
-
-## Code of Conduct
-
-Everyone interacting in the ModalStack project's codebases, issue trackers, chat rooms and mailing lists is expected to follow the [code of conduct](https://github.com/[USERNAME]/modal_stack/blob/master/CODE_OF_CONDUCT.md).
+MIT — see [LICENSE.txt](LICENSE.txt).

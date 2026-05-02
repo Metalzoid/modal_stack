@@ -12,7 +12,10 @@ rescue LoadError
   require "sprockets/railtie"
 end
 
+require "importmap-rails"
 require "turbo-rails"
+require "stimulus-rails"
+
 require "modal_stack"
 
 module Dummy

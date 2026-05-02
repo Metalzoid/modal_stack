@@ -1,0 +1,12 @@
+<h1>Home</h1>
+
+<nav>
+  <%= modal_link_to "Open modal",       modal_demo_path,                    id: "open-modal" %>
+  <%= modal_link_to "Drawer right",     modal_drawer_path(side: :right),    as: :drawer, side: :right, id: "open-drawer-right" %>
+  <%= modal_link_to "Drawer left",      modal_drawer_path(side: :left),     as: :drawer, side: :left,  id: "open-drawer-left" %>
+  <%= modal_link_to "Drawer top",       modal_drawer_path(side: :top),      as: :drawer, side: :top,   id: "open-drawer-top" %>
+  <%= modal_link_to "Drawer bottom",    modal_drawer_path(side: :bottom),   as: :drawer, side: :bottom, id: "open-drawer-bottom" %>
+  <%= modal_link_to "Bottom sheet",     modal_bottom_sheet_path,            as: :bottom_sheet, id: "open-sheet" %>
+  <%= modal_link_to "Locked modal",     modal_locked_path,                  dismissible: false, id: "open-locked" %>
+  <%= modal_link_to "Wizard step 1",    wizard_step_1_path,                 id: "open-wizard" %>
+</nav>

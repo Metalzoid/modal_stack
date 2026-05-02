@@ -1,0 +1,4 @@
+<%= modal_stack_container do %>
+  <h2 id="wizard-step">Step 1</h2>
+  <%= button_to "Advance", wizard_advance_path, method: :post, data: { turbo_stream: true }, id: "wizard-advance" %>
+<% end %>

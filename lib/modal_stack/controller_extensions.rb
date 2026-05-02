@@ -43,6 +43,7 @@ module ModalStack
     # (signaled by the X-Modal-Stack-Request header on the fetch).
     def modal_stack_request?
       return false unless respond_to?(:request) && request
+
       request.headers[ModalStack::REQUEST_HEADER] == "1"
     end
 
