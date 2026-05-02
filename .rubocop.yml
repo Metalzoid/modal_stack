@@ -1,5 +1,9 @@
+inherit_from: .rubocop_todo.yml
+
 AllCops:
   TargetRubyVersion: 3.2
+  Exclude:
+    - "lib/generators/modal_stack/install/templates/initializer.rb"
 
 Style/StringLiterals:
   EnforcedStyle: double_quotes
