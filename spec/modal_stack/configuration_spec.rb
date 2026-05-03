@@ -59,6 +59,48 @@ RSpec.describe ModalStack::Configuration do
       expect { config.default_size = :tiny }
         .to raise_error(ArgumentError, /default_size/)
     end
+
+    it "rejects non-boolean default_dismissible" do
+      expect { config.default_dismissible = "yes" }
+        .to raise_error(ArgumentError, /default_dismissible/)
+      expect { config.default_dismissible = nil }
+        .to raise_error(ArgumentError, /default_dismissible/)
+    end
+
+    it "accepts true/false for default_dismissible" do
+      config.default_dismissible = false
+      expect(config.default_dismissible).to be false
+    end
+
+    it "rejects max_depth that is not a positive integer" do
+      expect { config.max_depth = 0 }.to raise_error(ArgumentError, /max_depth/)
+      expect { config.max_depth = -1 }.to raise_error(ArgumentError, /max_depth/)
+      expect { config.max_depth = "abc" }.to raise_error(ArgumentError, /max_depth/)
+    end
+
+    it "accepts nil for max_depth (no cap)" do
+      config.max_depth = nil
+      expect(config.max_depth).to be_nil
+    end
+
+    it "coerces stringy max_depth" do
+      config.max_depth = "10"
+      expect(config.max_depth).to eq(10)
+    end
+
+    it "defaults max_depth_strategy to :warn" do
+      expect(config.max_depth_strategy).to eq(:warn)
+    end
+
+    it "rejects unknown max_depth_strategy" do
+      expect { config.max_depth_strategy = :explode }
+        .to raise_error(ArgumentError, /max_depth_strategy/)
+    end
+
+    it "accepts a string and coerces max_depth_strategy" do
+      config.max_depth_strategy = "raise"
+      expect(config.max_depth_strategy).to eq(:raise)
+    end
   end
 
   describe "ModalStack.configure" do

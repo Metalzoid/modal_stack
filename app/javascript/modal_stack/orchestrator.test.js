@@ -238,6 +238,56 @@ describe("onPopstate", () => {
     expect(rebuild).toMatchObject({ targetDepth: 2, targetLayerId: "L2" });
   });
 
+  test("missing handler error names known handlers", async () => {
+    const partialRuntime = {
+      // showDialog is missing on purpose so we can verify the error message.
+      mountLayer: () => {},
+      lockScroll: () => {},
+      pushHistory: () => {},
+      persistSnapshot: () => {},
+    };
+    Object.setPrototypeOf(partialRuntime, {
+      mountLayer: partialRuntime.mountLayer,
+      lockScroll: partialRuntime.lockScroll,
+      pushHistory: partialRuntime.pushHistory,
+      persistSnapshot: partialRuntime.persistSnapshot,
+    });
+    const orch = new Orchestrator({
+      runtime: partialRuntime,
+      stackId: STACK_ID,
+      baseUrl: BASE_URL,
+    });
+    let caught = null;
+    try {
+      await orch.push({ id: "L1", url: "/x" });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect(caught.message).toMatch(/showDialog/);
+    expect(caught.message).toMatch(/depth=/);
+  });
+
+  test("max_depth strategy is threaded through to the reducer", async () => {
+    const orch = new Orchestrator({
+      runtime: recordingRuntime(),
+      stackId: STACK_ID,
+      baseUrl: BASE_URL,
+      maxDepth: 1,
+      maxDepthStrategy: "raise",
+    });
+    await orch.push({ id: "L1", url: "/x" });
+    let caught = null;
+    try {
+      await orch.push({ id: "L2", url: "/y" });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).not.toBeNull();
+    expect(caught.name).toBe("ModalStackDepthError");
+    expect(orch.depth).toBe(1);
+  });
+
   test("popstate from a different stack tears down without history changes", async () => {
     await orchestrator.push({ id: "L1", url: "/x" });
     runtime._calls.length = 0;

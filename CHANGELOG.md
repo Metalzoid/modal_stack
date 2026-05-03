@@ -12,6 +12,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.2.0] - 2026-05-03
+
+### Added
+- **`max_depth` enforcement**: pushes past the cap are now intercepted by the reducer. The new `config.max_depth_strategy` (`:warn` default, `:raise`, `:silent`) controls behaviour. The cap can be disabled with `config.max_depth = nil`.
+- **`ModalStackDepthError`** JS class, thrown by `push()` under the `:raise` strategy. Exported from `state.js`.
+- **Scrollbar-width compensation**: `BrowserRuntime#lockScroll` now sets `--modal-stack-scrollbar-width` on `<html>` so the host CSS can offset fixed elements without layout shift. The CSS variable was already referenced by the Tailwind / Bootstrap / vanilla presets — this completes the wiring.
+- **`modal_stack:error` custom event**: malformed Turbo Stream payloads (bad `data-*`, fetch failures) no longer crash the page. The error is logged and re-emitted as a bubbling `CustomEvent` on the `<dialog>` so apps can surface UI feedback.
+- **JSDoc** on the JS public surface (`state.js`, `runtime.js`, `orchestrator.js`) — including `Layer`, `Stack`, `Command`, and `Transition` typedefs.
+- New tests: max_depth strategies, scrollbar-width compensation, missing-handler error message, default_dismissible/max_depth/max_depth_strategy validation, dialog tag wiring.
+
+### Changed
+- `Configuration#default_dismissible=` now raises `ArgumentError` on non-boolean values (was a silent `attr_accessor`).
+- `Configuration#max_depth=` now coerces strings, accepts `nil`, and rejects non-positive integers.
+- `Orchestrator` constructor accepts `maxDepth` + `maxDepthStrategy`. The Stimulus controller forwards them via `data-modal-stack-max-depth-value` / `data-modal-stack-max-depth-strategy-value`, which `modal_stack_dialog_tag` now emits from the gem's configuration.
+- The "runtime missing handler" error message now lists the runtime's known handlers and the current stack depth.
+- `INITIALIZER_VERSION` bumped to `0.2.0` because the generator template gained `config.max_depth_strategy`.
+
 ## [0.1.1] - 2026-05-02
 
 ### Added

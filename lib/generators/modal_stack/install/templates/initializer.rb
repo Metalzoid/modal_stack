@@ -40,8 +40,14 @@ ModalStack.configure do |config|
   # layout to "modal" — read by `modal_stack_request?`.
   config.request_header = "X-Modal-Stack-Request"
 
-  # Hard cap on stack depth (push past this is a runtime error).
+  # Hard cap on stack depth. Set to `nil` to disable.
   config.max_depth = 5
+
+  # What to do when a push would exceed `max_depth`:
+  #   :warn   — log a console warning, drop the push (default)
+  #   :raise  — throw `ModalStackDepthError` from the JS runtime
+  #   :silent — drop the push, no warning
+  config.max_depth_strategy = :warn
 
   # Replace `data-turbo-confirm` window.confirm with a modal_stack
   # confirmation layer (cf. RFC §15.Q7). Off by default — opt-in.
