@@ -1,8 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   closeAll,
   createStack,
   handlePopstate,
+  ModalStackDepthError,
   pop,
   push,
   replaceTop,
@@ -154,6 +155,87 @@ describe("push", () => {
         side: "middle",
       }),
     ).toThrow(/unknown drawer side/);
+  });
+
+  describe("max_depth", () => {
+    let warnings = [];
+    const originalWarn = console.warn;
+
+    beforeEach(() => {
+      warnings = [];
+      console.warn = (...args) => warnings.push(args.join(" "));
+    });
+
+    afterEach(() => {
+      console.warn = originalWarn;
+    });
+
+    function stackOfDepth(n) {
+      let s = freshStack();
+      for (let i = 0; i < n; i++) {
+        s = push(s, { id: `L${i}`, url: `/p/${i}`, variant: "modal" }).state;
+      }
+      return s;
+    }
+
+    test("no cap when maxDepth is null (default)", () => {
+      const s = stackOfDepth(10);
+      const { state, commands } = push(s, { id: "L10", url: "/p/10", variant: "modal" });
+      expect(state.layers).toHaveLength(11);
+      expect(commands.length).toBeGreaterThan(0);
+    });
+
+    test("strategy 'warn' drops the push and logs", () => {
+      const s = stackOfDepth(3);
+      const { state, commands } = push(
+        s,
+        { id: "Lx", url: "/x", variant: "modal" },
+        { maxDepth: 3, maxDepthStrategy: "warn" },
+      );
+      expect(state).toBe(s);
+      expect(commands).toEqual([]);
+      expect(warnings.join("\n")).toMatch(/max_depth=3/);
+    });
+
+    test("strategy 'silent' drops the push without warning", () => {
+      const s = stackOfDepth(3);
+      const { state, commands } = push(
+        s,
+        { id: "Lx", url: "/x", variant: "modal" },
+        { maxDepth: 3, maxDepthStrategy: "silent" },
+      );
+      expect(state).toBe(s);
+      expect(commands).toEqual([]);
+      expect(warnings).toEqual([]);
+    });
+
+    test("strategy 'raise' throws ModalStackDepthError", () => {
+      const s = stackOfDepth(3);
+      let caught = null;
+      try {
+        push(
+          s,
+          { id: "Lx", url: "/x", variant: "modal" },
+          { maxDepth: 3, maxDepthStrategy: "raise" },
+        );
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(ModalStackDepthError);
+      expect(caught.maxDepth).toBe(3);
+      expect(caught.attemptedDepth).toBe(4);
+    });
+
+    test("rejects unknown strategy", () => {
+      const s = stackOfDepth(3);
+      expect(() =>
+        push(
+          s,
+          { id: "Lx", url: "/x", variant: "modal" },
+          { maxDepth: 3, maxDepthStrategy: "explode" },
+        ),
+      ).toThrow(/unknown maxDepthStrategy/);
+    });
   });
 
   test("passes custom width and height to mount command", () => {

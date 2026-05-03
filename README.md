@@ -210,7 +210,8 @@ ModalStack.configure do |config|
   config.default_dismissible = true     # ESC + backdrop click close the layer
 
   # ─── Behavior ─────────────────────────────────────────────────────
-  config.max_depth              = 5     # hard cap on nested layers
+  config.max_depth              = 5     # hard cap on nested layers (nil to disable)
+  config.max_depth_strategy     = :warn # :warn | :raise | :silent
   config.respect_reduced_motion = true  # honor prefers-reduced-motion
   config.replace_turbo_confirm  = false # use modal_stack confirmations for data-turbo-confirm
 
@@ -393,8 +394,17 @@ The `<dialog>` itself is opened on first push, closed on last pop. Page
 scroll is locked while any layer is open (`<body data-modal-stack-locked>`)
 so the page beneath doesn't scroll under your finger on touch devices.
 
-`max_depth` (default `5`) is a hard ceiling — pushing past it raises a
-runtime error, on the assumption that you have a state-machine bug.
+`max_depth` (default `5`) is a hard ceiling on the number of stacked layers,
+on the assumption that going past it usually means you have a state-machine
+bug. The behaviour is controlled by `config.max_depth_strategy`:
+
+| Strategy   | Behaviour                                                            |
+| ---------- | -------------------------------------------------------------------- |
+| `:warn`    | (default) The push is dropped and `console.warn` logs a message.     |
+| `:raise`   | The JS runtime throws `ModalStackDepthError` (caught by the stream-action error boundary, see below). |
+| `:silent`  | The push is dropped without logging.                                 |
+
+Set `config.max_depth = nil` to disable the cap entirely.
 
 ---
 
@@ -416,7 +426,8 @@ ModalStack.reset_configuration!         # test-fixture helper
 | `default_size`               | Symbol  | `:md`                    | `:sm`, `:md`, `:lg`, `:xl`. Validated. |
 | `default_dismissible`        | Boolean | `true`                   | Default for `dismissible:` when omitted. |
 | `default_classes`            | Hash    | `{ ... }`                | Hash of extra CSS class strings keyed by `:modal_panel`, `:drawer_panel`, `:bottom_sheet_panel`, `:confirmation_panel`. Useful for adding utility classes on top of the chosen preset. |
-| `max_depth`                  | Integer | `5`                      | Hard cap on stack depth — pushing past it raises. |
+| `max_depth`                  | Integer | `5`                      | Hard cap on stack depth. Coerced from strings; set to `nil` to disable. Validated. |
+| `max_depth_strategy`         | Symbol  | `:warn`                  | One of `:warn`, `:raise`, `:silent`. See [Stack depth & inertness](#stack-depth--inertness). Validated. |
 | `request_header`             | String  | `"X-Modal-Stack-Request"` | HTTP header used by the JS runtime to signal stack-originated fetches. Read by `modal_stack_request?`. |
 | `dialog_id`                  | String  | `"modal-stack-root"`     | The id of the singleton `<dialog>`. Override only on name collision. |
 | `stack_root_data_attribute`  | String  | `"modal-stack"`          | The Stimulus `data-controller` value attached to the `<dialog>`. |
@@ -503,11 +514,11 @@ The package exports a small functional core + a browser adapter:
 import {
   // pure reducer — no IO, no DOM
   createStack, push, pop, replaceTop, closeAll, handlePopstate,
-  snapshot, restore, topLayer, VARIANTS,
+  snapshot, restore, topLayer, VARIANTS, ModalStackDepthError,
 
   // orchestrator + browser runtime
   Orchestrator, BrowserRuntime,
-  FRAGMENT_HEADER, SNAPSHOT_KEY,
+  FRAGMENT_HEADER, SNAPSHOT_KEY, SCROLLBAR_WIDTH_VAR,
 } from "modal_stack"
 
 import { install } from "modal_stack/install"
@@ -517,6 +528,39 @@ import { install } from "modal_stack/install"
 entry point your `application.js` calls. The reducer is
 side-effect-free and 100% covered; the browser adapter is the only
 file that touches `<dialog>`, `history`, `fetch`, and `sessionStorage`.
+
+The reducer's command type vocabulary (`mountLayer`, `morphTopLayer`,
+`unmountTopLayer`, `unmountAllLayers`, `showDialog`, `closeDialog`,
+`lockScroll`, `unlockScroll`, `inertLayer`, `pushHistory`,
+`replaceHistory`, `historyBack`, `rebuildFromSnapshot`, `persistSnapshot`,
+`clearSnapshot`) forms the contract between `state.js` and any runtime —
+swap in a custom adapter (e.g. for Hotwire Native) by implementing one
+method per command name.
+
+#### Custom events
+
+The `<dialog>` emits two `CustomEvent`s that bubble to `document`:
+
+| Event                  | `detail`                                    | Fired when |
+| ---------------------- | ------------------------------------------- | ---------- |
+| `modal_stack:ready`    | `{ stackId }`                               | The Stimulus controller has connected and the orchestrator is ready. |
+| `modal_stack:error`    | `{ action, error }`                         | A Turbo Stream action (`modal_push`/`modal_pop`/`modal_replace`/`modal_close_all`) threw or rejected. The page is not crashed; surface UI feedback in the listener. |
+
+```js
+document.addEventListener("modal_stack:error", (event) => {
+  const { action, error } = event.detail;
+  showFlash(`Modal action ${action} failed: ${error.message}`);
+});
+```
+
+#### Scrollbar-width compensation
+
+When the first layer is pushed, `BrowserRuntime#lockScroll` measures
+`window.innerWidth - documentElement.clientWidth` and writes the result
+to `--modal-stack-scrollbar-width` on `<html>`. The shipped CSS presets
+already consume the variable (`padding-right: var(--modal-stack-scrollbar-width, 0)`)
+so fixed elements don't jump rightward on lock. If you maintain custom
+CSS, compose your fixed-position rules against the same variable.
 
 ### Capybara helpers
 

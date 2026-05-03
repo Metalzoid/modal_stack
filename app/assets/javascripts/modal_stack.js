@@ -11,6 +11,16 @@ var VARIANTS = Object.freeze([
 var SNAPSHOT_VERSION = 1;
 var DEFAULT_MAX_AGE_MS = 30 * 60 * 1000;
 var DRAWER_SIDES = Object.freeze(["left", "right", "top", "bottom"]);
+var MAX_DEPTH_STRATEGIES = Object.freeze(["raise", "warn", "silent"]);
+
+class ModalStackDepthError extends Error {
+  constructor({ maxDepth, attemptedDepth }) {
+    super(`modal_stack: cannot push past max_depth=${maxDepth} ` + `(attempted depth=${attemptedDepth})`);
+    this.name = "ModalStackDepthError";
+    this.maxDepth = maxDepth;
+    this.attemptedDepth = attemptedDepth;
+  }
+}
 function normalizeLayerOptions({ variant, size, side, width, height }) {
   const normalizedSide = variant === "drawer" ? side ?? "right" : side ?? null;
   if (variant === "drawer" && !DRAWER_SIDES.includes(normalizedSide)) {
@@ -46,7 +56,7 @@ function createStack({ stackId, baseUrl }) {
 function topLayer(state) {
   return state.layers[state.layers.length - 1] ?? null;
 }
-function push(state, layer) {
+function push(state, layer, options = {}) {
   if (!layer?.id)
     throw new Error("layer.id required");
   if (!layer?.url)
@@ -54,6 +64,22 @@ function push(state, layer) {
   const variant = layer.variant ?? "modal";
   if (!VARIANTS.includes(variant)) {
     throw new Error(`unknown variant: ${variant}`);
+  }
+  const { maxDepth = null, maxDepthStrategy = "warn" } = options;
+  if (maxDepth != null && state.layers.length >= maxDepth) {
+    if (!MAX_DEPTH_STRATEGIES.includes(maxDepthStrategy)) {
+      throw new Error(`unknown maxDepthStrategy: ${maxDepthStrategy} (expected one of ${MAX_DEPTH_STRATEGIES.join(", ")})`);
+    }
+    if (maxDepthStrategy === "raise") {
+      throw new ModalStackDepthError({
+        maxDepth,
+        attemptedDepth: state.layers.length + 1
+      });
+    }
+    if (maxDepthStrategy === "warn" && typeof console !== "undefined") {
+      console.warn(`[modal_stack] push ignored: stack is at max_depth=${maxDepth}. ` + `Set ModalStack.configuration.max_depth higher, or use ` + `max_depth_strategy = :silent to suppress this warning.`);
+    }
+    return { state, commands: [] };
   }
   const newLayer = freezeLayer({
     id: layer.id,
@@ -302,10 +328,19 @@ function restore(serialized, { stackId, maxAgeMs = DEFAULT_MAX_AGE_MS, now = Dat
 // app/javascript/modal_stack/orchestrator.js
 class Orchestrator {
   #expectedPopstates = 0;
-  constructor({ runtime, stackId, baseUrl, restoreFrom = null }) {
+  constructor({
+    runtime,
+    stackId,
+    baseUrl,
+    restoreFrom = null,
+    maxDepth = null,
+    maxDepthStrategy = "warn"
+  }) {
     if (!runtime)
       throw new Error("runtime required");
     this.runtime = runtime;
+    this.maxDepth = maxDepth;
+    this.maxDepthStrategy = maxDepthStrategy;
     this.state = createStack({ stackId, baseUrl });
     if (restoreFrom) {
       const restored = restore(restoreFrom, { stackId });
@@ -320,10 +355,16 @@ class Orchestrator {
     return this.state.layers.length;
   }
   async push(layer, { html = null, fragment = null } = {}) {
+    const transition = push(this.state, layer, {
+      maxDepth: this.maxDepth,
+      maxDepthStrategy: this.maxDepthStrategy
+    });
+    if (transition.commands.length === 0)
+      return;
     if (fragment == null && html == null && layer?.url) {
       fragment = await this.#prefetch(layer.url);
     }
-    return this.#dispatch(push(this.state, layer), { html, fragment });
+    return this.#dispatch(transition, { html, fragment });
   }
   pop() {
     return this.#dispatch(pop(this.state));
@@ -371,7 +412,8 @@ class Orchestrator {
     }
     const handler = this.runtime[cmd.type];
     if (typeof handler !== "function") {
-      throw new Error(`runtime missing handler for "${cmd.type}"`);
+      const known = Object.getOwnPropertyNames(Object.getPrototypeOf(this.runtime)).filter((name) => name !== "constructor" && typeof this.runtime[name] === "function").sort().join(", ");
+      throw new Error(`[modal_stack] runtime missing handler for "${cmd.type}" ` + `(stack depth=${this.depth}). ` + `Known handlers: ${known || "<none>"}.`);
     }
     await handler.call(this.runtime, cmd);
   }
@@ -380,6 +422,7 @@ class Orchestrator {
 // app/javascript/modal_stack/runtime.js
 var SNAPSHOT_KEY = "modalStackSnapshot";
 var FRAGMENT_HEADER = "X-Modal-Stack-Request";
+var SCROLLBAR_WIDTH_VAR = "--modal-stack-scrollbar-width";
 var LAYER_SELECTOR = '[data-modal-stack-target="layer"]';
 var LEAVE_TIMEOUT_MS = 600;
 
@@ -414,12 +457,22 @@ class BrowserRuntime {
       this.dialog.close();
   }
   lockScroll() {
-    if (this.body)
-      this.body.dataset.modalStackLocked = "";
+    if (!this.body)
+      return;
+    const root = this.document?.documentElement;
+    if (root) {
+      const scrollbarWidth = Math.max(0, (globalThis.innerWidth ?? root.clientWidth) - root.clientWidth);
+      root.style.setProperty(SCROLLBAR_WIDTH_VAR, `${scrollbarWidth}px`);
+    }
+    this.body.dataset.modalStackLocked = "";
   }
   unlockScroll() {
-    if (this.body)
-      delete this.body.dataset.modalStackLocked;
+    if (!this.body)
+      return;
+    delete this.body.dataset.modalStackLocked;
+    const root = this.document?.documentElement;
+    if (root)
+      root.style.removeProperty(SCROLLBAR_WIDTH_VAR);
   }
   inertLayer({ layerId, value }) {
     const layer = this.#findLayer(layerId);
@@ -582,7 +635,9 @@ function escapeAttr(value) {
 class ModalStackController extends Controller {
   static values = {
     stackId: String,
-    baseUrl: String
+    baseUrl: String,
+    maxDepth: { type: Number, default: 0 },
+    maxDepthStrategy: { type: String, default: "warn" }
   };
   connect() {
     const stackId = this.stackIdValue || generateLayerId();
@@ -593,7 +648,9 @@ class ModalStackController extends Controller {
       runtime: this.runtime,
       stackId,
       baseUrl,
-      restoreFrom: snapshot2
+      restoreFrom: snapshot2,
+      maxDepth: this.maxDepthValue > 0 ? this.maxDepthValue : null,
+      maxDepthStrategy: this.maxDepthStrategyValue || "warn"
     });
     this._onPopstate = (event) => this.orchestrator.onPopstate({
       historyState: event.state,
@@ -649,24 +706,45 @@ class ModalStackController extends Controller {
     }
     const StreamActions = Turbo.StreamActions || (Turbo.StreamActions = {});
     const orchestrator = this.orchestrator;
-    StreamActions.modal_push = function modalPush() {
-      orchestrator.push(layerFromStreamElement(this), {
+    const dialog = this.element;
+    const guarded = (action, fn) => function guardedStreamAction() {
+      try {
+        const result = fn.call(this, orchestrator);
+        if (result && typeof result.catch === "function") {
+          result.catch((err) => emitStreamError(dialog, action, err));
+        }
+      } catch (err) {
+        emitStreamError(dialog, action, err);
+      }
+    };
+    StreamActions.modal_push = guarded("modal_push", function(orch) {
+      return orch.push(layerFromStreamElement(this), {
         fragment: this.templateContent.cloneNode(true)
       });
-    };
-    StreamActions.modal_pop = function modalPop() {
-      orchestrator.pop();
-    };
-    StreamActions.modal_replace = function modalReplace() {
-      orchestrator.replaceTop(layerPatchFromStreamElement(this), {
+    });
+    StreamActions.modal_pop = guarded("modal_pop", function(orch) {
+      return orch.pop();
+    });
+    StreamActions.modal_replace = guarded("modal_replace", function(orch) {
+      return orch.replaceTop(layerPatchFromStreamElement(this), {
         fragment: this.templateContent.cloneNode(true),
         historyMode: this.dataset.historyMode || "replace"
       });
-    };
-    StreamActions.modal_close_all = function modalCloseAll() {
-      orchestrator.closeAll();
-    };
+    });
+    StreamActions.modal_close_all = guarded("modal_close_all", function(orch) {
+      return orch.closeAll();
+    });
   }
+}
+function emitStreamError(dialog, action, error) {
+  if (typeof console !== "undefined" && console.error) {
+    console.error(`[modal_stack] stream action "${action}" failed:`, error);
+  }
+  dialog.dispatchEvent(new CustomEvent("modal_stack:error", {
+    bubbles: true,
+    cancelable: false,
+    detail: { action, error }
+  }));
 }
 function layerFromStreamElement(el) {
   return {

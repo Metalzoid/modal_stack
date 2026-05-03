@@ -14,7 +14,7 @@ module ModalStack
   # Bumped when config/initializers/modal_stack.rb gains/loses an option,
   # so apps that haven't regenerated their initializer get a one-line
   # boot warning.  Independent from the gem's VERSION.
-  INITIALIZER_VERSION = "0.1.0"
+  INITIALIZER_VERSION = "0.2.0"
 
   class << self
     def configuration

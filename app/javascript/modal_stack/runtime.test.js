@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { BrowserRuntime, FRAGMENT_HEADER, SNAPSHOT_KEY } from "./runtime.js";
+import {
+  BrowserRuntime,
+  FRAGMENT_HEADER,
+  SCROLLBAR_WIDTH_VAR,
+  SNAPSHOT_KEY,
+} from "./runtime.js";
 
 function fakeStore() {
   const map = new Map();
@@ -107,6 +112,70 @@ describe("history wiring", () => {
       ["replace", { y: 2 }, "", "/b"],
       ["go", -3],
     ]);
+  });
+});
+
+describe("scroll lock", () => {
+  function fakeStyle() {
+    const props = new Map();
+    return {
+      props,
+      setProperty: (k, v) => props.set(k, v),
+      removeProperty: (k) => props.delete(k),
+    };
+  }
+
+  function fakeRoot({ clientWidth = 1000 } = {}) {
+    return { clientWidth, style: fakeStyle() };
+  }
+
+  test("lockScroll sets scrollbar-width var from window/root delta", () => {
+    const root = fakeRoot({ clientWidth: 985 });
+    const body = { dataset: {} };
+    const documentRef = { documentElement: root, body };
+    const rt = new BrowserRuntime(
+      noopRuntimeArgs({ documentRef, body }),
+    );
+    // Bun's globalThis.innerWidth is 0 by default — set it for the duration.
+    const original = globalThis.innerWidth;
+    globalThis.innerWidth = 1000;
+    try {
+      rt.lockScroll();
+    } finally {
+      globalThis.innerWidth = original;
+    }
+    expect(root.style.props.get(SCROLLBAR_WIDTH_VAR)).toBe("15px");
+    expect("modalStackLocked" in body.dataset).toBe(true);
+  });
+
+  test("unlockScroll clears the css variable", () => {
+    const root = fakeRoot();
+    root.style.props.set(SCROLLBAR_WIDTH_VAR, "15px");
+    const body = { dataset: { modalStackLocked: "" } };
+    const documentRef = { documentElement: root, body };
+    const rt = new BrowserRuntime(
+      noopRuntimeArgs({ documentRef, body }),
+    );
+    rt.unlockScroll();
+    expect(root.style.props.has(SCROLLBAR_WIDTH_VAR)).toBe(false);
+    expect("modalStackLocked" in body.dataset).toBe(false);
+  });
+
+  test("lockScroll never goes negative when there's no scrollbar", () => {
+    const root = fakeRoot({ clientWidth: 1000 });
+    const body = { dataset: {} };
+    const documentRef = { documentElement: root, body };
+    const rt = new BrowserRuntime(
+      noopRuntimeArgs({ documentRef, body }),
+    );
+    const original = globalThis.innerWidth;
+    globalThis.innerWidth = 800; // narrower than clientWidth
+    try {
+      rt.lockScroll();
+    } finally {
+      globalThis.innerWidth = original;
+    }
+    expect(root.style.props.get(SCROLLBAR_WIDTH_VAR)).toBe("0px");
   });
 });
 

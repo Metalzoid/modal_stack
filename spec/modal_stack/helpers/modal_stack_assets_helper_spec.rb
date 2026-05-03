@@ -60,6 +60,21 @@ RSpec.describe ModalStack::Helpers::ModalStackAssetsHelper do
       out = view.modal_stack_dialog_tag(id: "x")
       expect(out).to include('id="x"')
     end
+
+    it "forwards max_depth + max_depth_strategy to the Stimulus controller" do
+      ModalStack.configuration.max_depth = 7
+      ModalStack.configuration.max_depth_strategy = :raise
+      out = view.modal_stack_dialog_tag
+      expect(out).to include('data-modal-stack-max-depth-value="7"')
+      expect(out).to include('data-modal-stack-max-depth-strategy-value="raise"')
+    end
+
+    it "omits max-depth-value when max_depth is nil" do
+      ModalStack.configuration.max_depth = nil
+      out = view.modal_stack_dialog_tag
+      expect(out).not_to include("max-depth-value")
+      expect(out).to include('data-modal-stack-max-depth-strategy-value="warn"')
+    end
   end
 
   describe "#modal_stack_javascript_tag" do

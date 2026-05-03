@@ -1,3 +1,27 @@
+/**
+ * @typedef {"modal" | "drawer" | "bottom_sheet" | "confirmation"} Variant
+ * @typedef {"left" | "right" | "top" | "bottom"} DrawerSide
+ * @typedef {"sm" | "md" | "lg" | "xl"} Size
+ *
+ * @typedef {Object} Layer
+ * @property {string} id        Stable layer identifier (used for inertness + DOM lookup)
+ * @property {string} url       Layer URL — also written to history
+ * @property {Variant} variant
+ * @property {boolean} dismissible
+ * @property {Size|null} size
+ * @property {DrawerSide|null} side  Required for drawers; null otherwise
+ * @property {string|null} width    Free-form CSS width (e.g. "42rem")
+ * @property {string|null} height
+ *
+ * @typedef {Object} Stack
+ * @property {string} stackId
+ * @property {string} baseUrl
+ * @property {readonly Layer[]} layers
+ *
+ * @typedef {{ type: string } & Record<string, unknown>} Command
+ * @typedef {{ state: Stack, commands: readonly Command[] }} Transition
+ */
+
 export const VARIANTS = Object.freeze([
   "modal",
   "drawer",
@@ -8,6 +32,25 @@ export const VARIANTS = Object.freeze([
 const SNAPSHOT_VERSION = 1;
 const DEFAULT_MAX_AGE_MS = 30 * 60 * 1000;
 const DRAWER_SIDES = Object.freeze(["left", "right", "top", "bottom"]);
+const MAX_DEPTH_STRATEGIES = Object.freeze(["raise", "warn", "silent"]);
+
+/**
+ * Thrown by `push()` when `maxDepth` is exceeded under the `"raise"` strategy.
+ * Caught upstream by the orchestrator's stream-action error boundary so the
+ * page doesn't blow up — but applications can also catch it directly when
+ * calling `orchestrator.push()` programmatically.
+ */
+export class ModalStackDepthError extends Error {
+  constructor({ maxDepth, attemptedDepth }) {
+    super(
+      `modal_stack: cannot push past max_depth=${maxDepth} ` +
+        `(attempted depth=${attemptedDepth})`,
+    );
+    this.name = "ModalStackDepthError";
+    this.maxDepth = maxDepth;
+    this.attemptedDepth = attemptedDepth;
+  }
+}
 
 function normalizeLayerOptions({ variant, size, side, width, height }) {
   // A drawer must always carry a side so CSS can position it.
@@ -37,22 +80,62 @@ function freezeLayer({ id, url, variant, dismissible, size, side, width, height 
   });
 }
 
+/**
+ * Build an empty, frozen stack.
+ * @param {{ stackId: string, baseUrl: string }} options
+ * @returns {Stack}
+ */
 export function createStack({ stackId, baseUrl }) {
   if (!stackId) throw new Error("stackId required");
   if (!baseUrl) throw new Error("baseUrl required");
   return Object.freeze({ stackId, baseUrl, layers: Object.freeze([]) });
 }
 
+/**
+ * @param {Stack} state
+ * @returns {Layer|null}
+ */
 export function topLayer(state) {
   return state.layers[state.layers.length - 1] ?? null;
 }
 
-export function push(state, layer) {
+/**
+ * Push a new layer on top of the stack.
+ *
+ * @param {Stack} state
+ * @param {Partial<Layer> & { id: string, url: string }} layer
+ * @param {{ maxDepth?: number|null, maxDepthStrategy?: "raise"|"warn"|"silent" }} [options]
+ * @returns {Transition}
+ */
+export function push(state, layer, options = {}) {
   if (!layer?.id) throw new Error("layer.id required");
   if (!layer?.url) throw new Error("layer.url required");
   const variant = layer.variant ?? "modal";
   if (!VARIANTS.includes(variant)) {
     throw new Error(`unknown variant: ${variant}`);
+  }
+
+  const { maxDepth = null, maxDepthStrategy = "warn" } = options;
+  if (maxDepth != null && state.layers.length >= maxDepth) {
+    if (!MAX_DEPTH_STRATEGIES.includes(maxDepthStrategy)) {
+      throw new Error(
+        `unknown maxDepthStrategy: ${maxDepthStrategy} (expected one of ${MAX_DEPTH_STRATEGIES.join(", ")})`,
+      );
+    }
+    if (maxDepthStrategy === "raise") {
+      throw new ModalStackDepthError({
+        maxDepth,
+        attemptedDepth: state.layers.length + 1,
+      });
+    }
+    if (maxDepthStrategy === "warn" && typeof console !== "undefined") {
+      console.warn(
+        `[modal_stack] push ignored: stack is at max_depth=${maxDepth}. ` +
+          `Set ModalStack.configuration.max_depth higher, or use ` +
+          `max_depth_strategy = :silent to suppress this warning.`,
+      );
+    }
+    return { state, commands: [] };
   }
 
   const newLayer = freezeLayer({
@@ -102,6 +185,11 @@ export function push(state, layer) {
   return { state: { ...state, layers }, commands };
 }
 
+/**
+ * Pop the top layer. No-op when the stack is empty.
+ * @param {Stack} state
+ * @returns {Transition}
+ */
 export function pop(state) {
   if (state.layers.length === 0) return { state, commands: [] };
 
@@ -122,6 +210,13 @@ export function pop(state) {
   return { state: { ...state, layers: newLayers }, commands };
 }
 
+/**
+ * Replace (morph) the top layer in-place.
+ * @param {Stack} state
+ * @param {Partial<Layer>} patch
+ * @param {{ historyMode?: "push"|"replace" }} [options]
+ * @returns {Transition}
+ */
 export function replaceTop(state, patch, { historyMode = "replace" } = {}) {
   if (state.layers.length === 0) {
     throw new Error("replaceTop requires at least one layer");
@@ -171,6 +266,11 @@ export function replaceTop(state, patch, { historyMode = "replace" } = {}) {
   };
 }
 
+/**
+ * Close every layer at once.
+ * @param {Stack} state
+ * @returns {Transition}
+ */
 export function closeAll(state) {
   if (state.layers.length === 0) return { state, commands: [] };
   const n = state.layers.length;
@@ -186,6 +286,13 @@ export function closeAll(state) {
   };
 }
 
+/**
+ * Reduce a browser `popstate` into a transition: pop layers, morph the top,
+ * or request a rebuild from snapshot for forward navigation.
+ * @param {Stack} state
+ * @param {{ historyState: any, locationHref: string }} options
+ * @returns {Transition}
+ */
 export function handlePopstate(state, { historyState, locationHref }) {
   const isOurs =
     historyState && historyState.stackId === state.stackId;
@@ -273,6 +380,12 @@ export function handlePopstate(state, { historyState, locationHref }) {
   return { state, commands: [] };
 }
 
+/**
+ * Serialize the stack for sessionStorage. Versioned + timestamped.
+ * @param {Stack} state
+ * @param {{ now?: () => number }} [options]
+ * @returns {string}
+ */
 export function snapshot(state, { now = Date.now } = {}) {
   return JSON.stringify({
     v: SNAPSHOT_VERSION,
@@ -283,6 +396,13 @@ export function snapshot(state, { now = Date.now } = {}) {
   });
 }
 
+/**
+ * Restore a stack from a serialized snapshot. Returns null on any validation
+ * failure (wrong stackId, expired, malformed JSON, etc.).
+ * @param {string} serialized
+ * @param {{ stackId?: string, maxAgeMs?: number, now?: () => number }} [options]
+ * @returns {Stack|null}
+ */
 export function restore(
   serialized,
   { stackId, maxAgeMs = DEFAULT_MAX_AGE_MS, now = Date.now } = {},

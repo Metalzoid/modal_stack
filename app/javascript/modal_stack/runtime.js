@@ -1,12 +1,30 @@
 export const SNAPSHOT_KEY = "modalStackSnapshot";
 export const FRAGMENT_HEADER = "X-Modal-Stack-Request";
+export const SCROLLBAR_WIDTH_VAR = "--modal-stack-scrollbar-width";
 
 const LAYER_SELECTOR = '[data-modal-stack-target="layer"]';
 // Hard cap: never wait longer than this for an exit transition to fire,
 // even if the host CSS forgot to transition the leaving state.
 const LEAVE_TIMEOUT_MS = 600;
 
+/**
+ * The only file that touches `<dialog>`, `history`, `fetch`, and
+ * `sessionStorage`. Implements one method per command type emitted by the
+ * reducer in `state.js`.
+ *
+ * Tests can swap in any object that implements the same surface (see
+ * `orchestrator.test.js` for an in-memory fake).
+ */
 export class BrowserRuntime {
+  /**
+   * @param {Object} options
+   * @param {HTMLDialogElement} options.dialog
+   * @param {HTMLElement} [options.body]
+   * @param {History} [options.history]
+   * @param {typeof fetch} [options.fetcher]
+   * @param {Storage} [options.store]
+   * @param {Document} [options.documentRef]
+   */
   constructor({
     dialog,
     body = globalThis.document?.body,
@@ -35,11 +53,27 @@ export class BrowserRuntime {
   }
 
   lockScroll() {
-    if (this.body) this.body.dataset.modalStackLocked = "";
+    if (!this.body) return;
+    // Compensate for the scrollbar that disappears once <body> stops
+    // overflowing — without this, fixed elements jump rightward by the
+    // scrollbar width on lock. Host CSS reads the variable via
+    // `padding-right: var(--modal-stack-scrollbar-width, 0)`.
+    const root = this.document?.documentElement;
+    if (root) {
+      const scrollbarWidth = Math.max(
+        0,
+        (globalThis.innerWidth ?? root.clientWidth) - root.clientWidth,
+      );
+      root.style.setProperty(SCROLLBAR_WIDTH_VAR, `${scrollbarWidth}px`);
+    }
+    this.body.dataset.modalStackLocked = "";
   }
 
   unlockScroll() {
-    if (this.body) delete this.body.dataset.modalStackLocked;
+    if (!this.body) return;
+    delete this.body.dataset.modalStackLocked;
+    const root = this.document?.documentElement;
+    if (root) root.style.removeProperty(SCROLLBAR_WIDTH_VAR);
   }
 
   inertLayer({ layerId, value }) {

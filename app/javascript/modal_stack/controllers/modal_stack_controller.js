@@ -6,6 +6,8 @@ export class ModalStackController extends Controller {
   static values = {
     stackId: String,
     baseUrl: String,
+    maxDepth: { type: Number, default: 0 },
+    maxDepthStrategy: { type: String, default: "warn" },
   };
 
   connect() {
@@ -20,6 +22,10 @@ export class ModalStackController extends Controller {
       stackId,
       baseUrl,
       restoreFrom: snapshot,
+      // Stimulus Number values default to 0, but state.js treats null as
+      // "no cap" — so map 0/missing to null here.
+      maxDepth: this.maxDepthValue > 0 ? this.maxDepthValue : null,
+      maxDepthStrategy: this.maxDepthStrategyValue || "warn",
     });
 
     this._onPopstate = (event) =>
@@ -89,28 +95,57 @@ export class ModalStackController extends Controller {
     }
     const StreamActions = Turbo.StreamActions || (Turbo.StreamActions = {});
     const orchestrator = this.orchestrator;
+    const dialog = this.element;
 
-    StreamActions.modal_push = function modalPush() {
-      orchestrator.push(layerFromStreamElement(this), {
+    // Wraps a stream-action body so a malformed payload (bad data-*, fetch
+    // 500, etc.) doesn't bubble up and break the page. The error is logged
+    // and re-emitted as `modal_stack:error` so apps can surface UI feedback.
+    const guarded = (action, fn) =>
+      function guardedStreamAction() {
+        try {
+          const result = fn.call(this, orchestrator);
+          if (result && typeof result.catch === "function") {
+            result.catch((err) => emitStreamError(dialog, action, err));
+          }
+        } catch (err) {
+          emitStreamError(dialog, action, err);
+        }
+      };
+
+    StreamActions.modal_push = guarded("modal_push", function (orch) {
+      return orch.push(layerFromStreamElement(this), {
         fragment: this.templateContent.cloneNode(true),
       });
-    };
+    });
 
-    StreamActions.modal_pop = function modalPop() {
-      orchestrator.pop();
-    };
+    StreamActions.modal_pop = guarded("modal_pop", function (orch) {
+      return orch.pop();
+    });
 
-    StreamActions.modal_replace = function modalReplace() {
-      orchestrator.replaceTop(layerPatchFromStreamElement(this), {
+    StreamActions.modal_replace = guarded("modal_replace", function (orch) {
+      return orch.replaceTop(layerPatchFromStreamElement(this), {
         fragment: this.templateContent.cloneNode(true),
         historyMode: this.dataset.historyMode || "replace",
       });
-    };
+    });
 
-    StreamActions.modal_close_all = function modalCloseAll() {
-      orchestrator.closeAll();
-    };
+    StreamActions.modal_close_all = guarded("modal_close_all", function (orch) {
+      return orch.closeAll();
+    });
   }
+}
+
+function emitStreamError(dialog, action, error) {
+  if (typeof console !== "undefined" && console.error) {
+    console.error(`[modal_stack] stream action "${action}" failed:`, error);
+  }
+  dialog.dispatchEvent(
+    new CustomEvent("modal_stack:error", {
+      bubbles: true,
+      cancelable: false,
+      detail: { action, error },
+    }),
+  );
 }
 
 function layerFromStreamElement(el) {
