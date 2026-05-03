@@ -79,6 +79,10 @@ export class ModalStackController extends Controller {
     return this.orchestrator.closeAll();
   }
 
+  prefetch(url) {
+    return this.orchestrator.prefetch(url);
+  }
+
   #topLayer() {
     const layers = this.orchestrator.layers;
     return layers[layers.length - 1] ?? null;

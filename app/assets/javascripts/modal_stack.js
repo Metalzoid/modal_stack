@@ -326,21 +326,27 @@ function restore(serialized, { stackId, maxAgeMs = DEFAULT_MAX_AGE_MS, now = Dat
 }
 
 // app/javascript/modal_stack/orchestrator.js
+var PREFETCH_TTL_MS = 30000;
+
 class Orchestrator {
   #expectedPopstates = 0;
+  #fragmentCache = new Map;
+  #inflight = new Map;
   constructor({
     runtime,
     stackId,
     baseUrl,
     restoreFrom = null,
     maxDepth = null,
-    maxDepthStrategy = "warn"
+    maxDepthStrategy = "warn",
+    prefetchTtlMs = PREFETCH_TTL_MS
   }) {
     if (!runtime)
       throw new Error("runtime required");
     this.runtime = runtime;
     this.maxDepth = maxDepth;
     this.maxDepthStrategy = maxDepthStrategy;
+    this.prefetchTtlMs = prefetchTtlMs;
     this.state = createStack({ stackId, baseUrl });
     if (restoreFrom) {
       const restored = restore(restoreFrom, { stackId });
@@ -378,9 +384,44 @@ class Orchestrator {
   async#prefetch(url) {
     if (typeof this.runtime.fetchFragment !== "function")
       return null;
-    return this.runtime.fetchFragment(url);
+    const cached = this.#fragmentCache.get(url);
+    if (cached && Date.now() - cached.ts < this.prefetchTtlMs) {
+      return cloneFragment(cached.fragment);
+    }
+    const existing = this.#inflight.get(url);
+    if (existing) {
+      const entry2 = await existing.promise;
+      return cloneFragment(entry2.fragment);
+    }
+    const controller = supportsAbort() ? new AbortController : null;
+    const fetchPromise = this.runtime.fetchFragment(url, controller ? { signal: controller.signal } : undefined).then((fragment) => {
+      const entry2 = { fragment, ts: Date.now() };
+      this.#fragmentCache.set(url, entry2);
+      return entry2;
+    }).finally(() => {
+      this.#inflight.delete(url);
+    });
+    this.#inflight.set(url, { controller, promise: fetchPromise });
+    const entry = await fetchPromise;
+    return cloneFragment(entry.fragment);
+  }
+  #invalidatePrefetch() {
+    for (const { controller } of this.#inflight.values()) {
+      try {
+        controller?.abort();
+      } catch {}
+    }
+    this.#inflight.clear();
+    this.#fragmentCache.clear();
+  }
+  prefetch(url) {
+    if (!url || typeof this.runtime.fetchFragment !== "function") {
+      return Promise.resolve(null);
+    }
+    return this.#prefetch(url).catch(() => null);
   }
   closeAll() {
+    this.#invalidatePrefetch();
     return this.#dispatch(closeAll(this.state));
   }
   onPopstate({ historyState, locationHref }) {
@@ -388,6 +429,7 @@ class Orchestrator {
       this.#expectedPopstates -= 1;
       return Promise.resolve();
     }
+    this.#invalidatePrefetch();
     return this.#dispatch(handlePopstate(this.state, { historyState, locationHref }));
   }
   async#dispatch({ state, commands }, payload = {}) {
@@ -418,13 +460,26 @@ class Orchestrator {
     await handler.call(this.runtime, cmd);
   }
 }
+function cloneFragment(fragment) {
+  if (!fragment)
+    return fragment;
+  if (typeof fragment.cloneNode === "function") {
+    return fragment.cloneNode(true);
+  }
+  return fragment;
+}
+function supportsAbort() {
+  return typeof globalThis.AbortController === "function";
+}
 
 // app/javascript/modal_stack/runtime.js
 var SNAPSHOT_KEY = "modalStackSnapshot";
 var FRAGMENT_HEADER = "X-Modal-Stack-Request";
 var SCROLLBAR_WIDTH_VAR = "--modal-stack-scrollbar-width";
 var LAYER_SELECTOR = '[data-modal-stack-target="layer"]';
-var LEAVE_TIMEOUT_MS = 600;
+var DURATION_CSS_VAR = "--modal-stack-duration";
+var LEAVE_TIMEOUT_FLOOR_MS = 300;
+var LEAVE_TIMEOUT_FALLBACK_MS = 600;
 
 class BrowserRuntime {
   constructor({
@@ -502,11 +557,12 @@ class BrowserRuntime {
     const layer = this.#topLayer();
     if (!layer)
       return;
-    await animateOut(layer);
+    await animateOut(layer, this.#leaveTimeoutMs());
   }
   async unmountAllLayers() {
     const layers = [...this.dialog.querySelectorAll(LAYER_SELECTOR)];
-    await Promise.all(layers.map(animateOut));
+    const timeout = this.#leaveTimeoutMs();
+    await Promise.all(layers.map((l) => animateOut(l, timeout)));
   }
   pushHistory({ url, historyState }) {
     this.history.pushState(historyState, "", url);
@@ -542,6 +598,22 @@ class BrowserRuntime {
     } catch {
       return null;
     }
+  }
+  #leaveTimeoutMs() {
+    if (this._cachedLeaveTimeoutMs != null)
+      return this._cachedLeaveTimeoutMs;
+    const get = globalThis.getComputedStyle;
+    if (typeof get !== "function" || !this.dialog?.ownerDocument) {
+      return LEAVE_TIMEOUT_FALLBACK_MS;
+    }
+    let parsed = NaN;
+    try {
+      const raw = get(this.dialog).getPropertyValue(DURATION_CSS_VAR);
+      parsed = parseDurationMs(raw);
+    } catch {}
+    const ms = Number.isFinite(parsed) ? Math.max(Math.ceil(parsed * 1.5), LEAVE_TIMEOUT_FLOOR_MS) : LEAVE_TIMEOUT_FALLBACK_MS;
+    this._cachedLeaveTimeoutMs = ms;
+    return ms;
   }
   #findLayer(layerId) {
     return this.dialog.querySelector(`${LAYER_SELECTOR}[data-layer-id="${escapeAttr(layerId)}"]`);
@@ -579,13 +651,14 @@ class BrowserRuntime {
       layer.style.removeProperty("height");
     }
   }
-  async fetchFragment(url) {
+  async fetchFragment(url, { signal } = {}) {
     const resp = await this.fetcher(url, {
       headers: {
         Accept: "text/html, text/vnd.turbo-stream.html",
         [FRAGMENT_HEADER]: "1"
       },
-      credentials: "same-origin"
+      credentials: "same-origin",
+      signal
     });
     if (!resp.ok) {
       throw new Error(`modal_stack: fetch ${url} → ${resp.status}`);
@@ -608,7 +681,7 @@ function parseFragment(html, doc) {
   fragment.append(...parsed.body.childNodes);
   return fragment;
 }
-function animateOut(layer) {
+function animateOut(layer, timeoutMs = LEAVE_TIMEOUT_FALLBACK_MS) {
   return new Promise((resolve) => {
     let done = false;
     const finish = () => {
@@ -621,8 +694,19 @@ function animateOut(layer) {
     };
     layer.addEventListener("transitionend", finish, { once: true });
     layer.dataset.leaving = "";
-    setTimeout(finish, LEAVE_TIMEOUT_MS);
+    setTimeout(finish, timeoutMs);
   });
+}
+function parseDurationMs(raw) {
+  if (typeof raw !== "string")
+    return NaN;
+  const value = raw.trim();
+  if (!value)
+    return NaN;
+  const num = parseFloat(value);
+  if (!Number.isFinite(num))
+    return NaN;
+  return /m?s$/i.test(value) && !/ms$/i.test(value) ? num * 1000 : num;
 }
 function escapeAttr(value) {
   if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
@@ -693,6 +777,9 @@ class ModalStackController extends Controller {
   }
   closeAll() {
     return this.orchestrator.closeAll();
+  }
+  prefetch(url) {
+    return this.orchestrator.prefetch(url);
   }
   #topLayer() {
     const layers = this.orchestrator.layers;
@@ -790,11 +877,21 @@ function generateLayerId() {
 import { Controller as Controller2 } from "@hotwired/stimulus";
 
 class ModalStackLinkController extends Controller2 {
-  open(event) {
-    const stack = document.querySelector('[data-controller~="modal-stack"]');
-    if (!stack)
+  connect() {
+    if (this.element.dataset.modalStackLinkPrefetch === "false")
       return;
-    const controller = this.application.getControllerForElementAndIdentifier(stack, "modal-stack");
+    this._onIntent = () => this.#warm();
+    this.element.addEventListener("pointerenter", this._onIntent);
+    this.element.addEventListener("focus", this._onIntent);
+  }
+  disconnect() {
+    if (!this._onIntent)
+      return;
+    this.element.removeEventListener("pointerenter", this._onIntent);
+    this.element.removeEventListener("focus", this._onIntent);
+  }
+  open(event) {
+    const controller = this.#stackController();
     if (!controller)
       return;
     event.preventDefault();
@@ -809,6 +906,18 @@ class ModalStackLinkController extends Controller2 {
       height: ds.modalStackLinkHeight,
       dismissible: ds.modalStackLinkDismissible !== "false"
     });
+  }
+  #warm() {
+    const controller = this.#stackController();
+    if (!controller || typeof controller.prefetch !== "function")
+      return;
+    controller.prefetch(this.element.href);
+  }
+  #stackController() {
+    const stack = document.querySelector('[data-controller~="modal-stack"]');
+    if (!stack)
+      return null;
+    return this.application.getControllerForElementAndIdentifier(stack, "modal-stack");
   }
 }
 function generateLayerId2() {

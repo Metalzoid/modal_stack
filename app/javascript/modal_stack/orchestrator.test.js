@@ -224,6 +224,172 @@ describe("closeAll", () => {
   });
 });
 
+describe("prefetch cache + abort", () => {
+  // Each fakeFragment supports cloneNode so the orchestrator can hand out
+  // independent copies without exhausting the cached entry.
+  function fakeFragment(label) {
+    return {
+      label,
+      consumed: false,
+      cloneNode() {
+        return fakeFragment(label);
+      },
+    };
+  }
+
+  function fetchingRuntime({ delayMs = 0, fail = false } = {}) {
+    const calls = [];
+    const aborts = [];
+    const handlerNames = [
+      "showDialog",
+      "lockScroll",
+      "inertLayer",
+      "mountLayer",
+      "morphTopLayer",
+      "unmountTopLayer",
+      "unmountAllLayers",
+      "closeDialog",
+      "unlockScroll",
+      "pushHistory",
+      "replaceHistory",
+      "historyBack",
+      "rebuildFromSnapshot",
+      "persistSnapshot",
+      "clearSnapshot",
+    ];
+    const runtime = { _calls: calls, _fetches: [], _aborts: aborts };
+    for (const name of handlerNames) {
+      runtime[name] = (cmd) => {
+        calls.push({ type: name, ...cmd });
+      };
+    }
+    runtime.fetchFragment = (url, { signal } = {}) => {
+      runtime._fetches.push(url);
+      return new Promise((resolve, reject) => {
+        const t = setTimeout(() => {
+          if (fail) reject(new Error("boom"));
+          else resolve(fakeFragment(`frag:${url}`));
+        }, delayMs);
+        if (signal) {
+          signal.addEventListener("abort", () => {
+            clearTimeout(t);
+            aborts.push(url);
+            const err = new Error("aborted");
+            err.name = "AbortError";
+            reject(err);
+          });
+        }
+      });
+    };
+    return runtime;
+  }
+
+  test("dedupes concurrent prefetches for the same url", async () => {
+    const rt = fetchingRuntime({ delayMs: 5 });
+    const orch = new Orchestrator({
+      runtime: rt,
+      stackId: STACK_ID,
+      baseUrl: BASE_URL,
+    });
+    await Promise.all([
+      orch.push({ id: "L1", url: "/x" }),
+      orch.push({ id: "L2", url: "/x" }),
+    ]);
+    expect(rt._fetches).toEqual(["/x"]);
+  });
+
+  test("hits the cache on a second push to the same url", async () => {
+    const rt = fetchingRuntime();
+    const orch = new Orchestrator({
+      runtime: rt,
+      stackId: STACK_ID,
+      baseUrl: BASE_URL,
+    });
+    await orch.push({ id: "L1", url: "/x" });
+    await orch.pop();
+    await orch.push({ id: "L2", url: "/x" });
+    expect(rt._fetches).toEqual(["/x"]);
+  });
+
+  test("returns a fresh clone per consumer (cache survives consumption)", async () => {
+    const rt = fetchingRuntime();
+    const orch = new Orchestrator({
+      runtime: rt,
+      stackId: STACK_ID,
+      baseUrl: BASE_URL,
+    });
+    const seenFragments = [];
+    rt.mountLayer = (cmd) => {
+      seenFragments.push(cmd.fragment);
+    };
+    await orch.push({ id: "L1", url: "/x" });
+    await orch.pop();
+    await orch.push({ id: "L2", url: "/x" });
+    expect(seenFragments).toHaveLength(2);
+    expect(seenFragments[0]).not.toBe(seenFragments[1]);
+  });
+
+  test("TTL expires the cache and triggers a refetch", async () => {
+    const rt = fetchingRuntime();
+    const orch = new Orchestrator({
+      runtime: rt,
+      stackId: STACK_ID,
+      baseUrl: BASE_URL,
+      prefetchTtlMs: 1,
+    });
+    await orch.push({ id: "L1", url: "/x" });
+    await orch.pop();
+    await new Promise((r) => setTimeout(r, 5));
+    await orch.push({ id: "L2", url: "/x" });
+    expect(rt._fetches).toEqual(["/x", "/x"]);
+  });
+
+  test("prefetch warms the cache without dispatching commands", async () => {
+    const rt = fetchingRuntime();
+    const orch = new Orchestrator({
+      runtime: rt,
+      stackId: STACK_ID,
+      baseUrl: BASE_URL,
+    });
+    await orch.prefetch("/x");
+    expect(rt._fetches).toEqual(["/x"]);
+    expect(rt._calls).toEqual([]);
+    // Subsequent push consumes the cache, no second fetch.
+    await orch.push({ id: "L1", url: "/x" });
+    expect(rt._fetches).toEqual(["/x"]);
+  });
+
+  test("prefetch swallows errors (best-effort)", async () => {
+    const rt = fetchingRuntime({ fail: true });
+    const orch = new Orchestrator({
+      runtime: rt,
+      stackId: STACK_ID,
+      baseUrl: BASE_URL,
+    });
+    await expect(orch.prefetch("/boom")).resolves.toBeNull();
+  });
+
+  test("closeAll aborts in-flight prefetches and clears the cache", async () => {
+    const rt = fetchingRuntime({ delayMs: 50 });
+    const orch = new Orchestrator({
+      runtime: rt,
+      stackId: STACK_ID,
+      baseUrl: BASE_URL,
+    });
+    // First push completes so the cache has /x.
+    await orch.push({ id: "L1", url: "/x" });
+    // Second push starts fetching /y and stays in flight.
+    const inflight = orch.push({ id: "L2", url: "/y" });
+    await new Promise((r) => setTimeout(r, 5));
+    await orch.closeAll();
+    await expect(inflight).rejects.toThrow(/aborted/);
+    expect(rt._aborts).toContain("/y");
+    // Cache has been cleared too: re-push of /x must refetch.
+    await orch.push({ id: "L3", url: "/x" });
+    expect(rt._fetches.filter((u) => u === "/x")).toHaveLength(2);
+  });
+});
+
 describe("onPopstate", () => {
   test("forward navigation requests rebuild from snapshot", async () => {
     await orchestrator.push({ id: "L1", url: "/x" });

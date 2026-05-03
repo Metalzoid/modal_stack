@@ -3,9 +3,15 @@ export const FRAGMENT_HEADER = "X-Modal-Stack-Request";
 export const SCROLLBAR_WIDTH_VAR = "--modal-stack-scrollbar-width";
 
 const LAYER_SELECTOR = '[data-modal-stack-target="layer"]';
-// Hard cap: never wait longer than this for an exit transition to fire,
-// even if the host CSS forgot to transition the leaving state.
-const LEAVE_TIMEOUT_MS = 600;
+// CSS variable host stylesheets set to declare their leave-transition
+// duration (e.g. "220ms"). When present, the runtime sizes its safety
+// timeout from this value; otherwise it falls back to a conservative cap.
+const DURATION_CSS_VAR = "--modal-stack-duration";
+// Floor for the safety timeout — even very short CSS transitions need
+// enough headroom for transitionend to fire on slow devices.
+const LEAVE_TIMEOUT_FLOOR_MS = 300;
+// Used when no CSS variable is exposed (host CSS missing, JSDOM tests).
+const LEAVE_TIMEOUT_FALLBACK_MS = 600;
 
 /**
  * The only file that touches `<dialog>`, `history`, `fetch`, and
@@ -102,12 +108,13 @@ export class BrowserRuntime {
   async unmountTopLayer() {
     const layer = this.#topLayer();
     if (!layer) return;
-    await animateOut(layer);
+    await animateOut(layer, this.#leaveTimeoutMs());
   }
 
   async unmountAllLayers() {
     const layers = [...this.dialog.querySelectorAll(LAYER_SELECTOR)];
-    await Promise.all(layers.map(animateOut));
+    const timeout = this.#leaveTimeoutMs();
+    await Promise.all(layers.map((l) => animateOut(l, timeout)));
   }
 
   pushHistory({ url, historyState }) {
@@ -156,6 +163,34 @@ export class BrowserRuntime {
     }
   }
 
+  // Reads --modal-stack-duration from the dialog's computed style and
+  // returns 1.5× that as the safety timeout (in ms). Cached after the
+  // first successful read since the variable is host-CSS-defined and
+  // shouldn't change at runtime. Returns LEAVE_TIMEOUT_FALLBACK_MS when
+  // getComputedStyle is unavailable (tests) or the variable is missing.
+  #leaveTimeoutMs() {
+    if (this._cachedLeaveTimeoutMs != null) return this._cachedLeaveTimeoutMs;
+
+    const get = globalThis.getComputedStyle;
+    if (typeof get !== "function" || !this.dialog?.ownerDocument) {
+      return LEAVE_TIMEOUT_FALLBACK_MS;
+    }
+
+    let parsed = NaN;
+    try {
+      const raw = get(this.dialog).getPropertyValue(DURATION_CSS_VAR);
+      parsed = parseDurationMs(raw);
+    } catch {
+      // getComputedStyle can throw in detached/foreign documents.
+    }
+
+    const ms = Number.isFinite(parsed)
+      ? Math.max(Math.ceil(parsed * 1.5), LEAVE_TIMEOUT_FLOOR_MS)
+      : LEAVE_TIMEOUT_FALLBACK_MS;
+    this._cachedLeaveTimeoutMs = ms;
+    return ms;
+  }
+
   #findLayer(layerId) {
     return this.dialog.querySelector(
       `${LAYER_SELECTOR}[data-layer-id="${escapeAttr(layerId)}"]`,
@@ -193,13 +228,14 @@ export class BrowserRuntime {
     }
   }
 
-  async fetchFragment(url) {
+  async fetchFragment(url, { signal } = {}) {
     const resp = await this.fetcher(url, {
       headers: {
         Accept: "text/html, text/vnd.turbo-stream.html",
         [FRAGMENT_HEADER]: "1",
       },
       credentials: "same-origin",
+      signal,
     });
     if (!resp.ok) {
       throw new Error(`modal_stack: fetch ${url} → ${resp.status}`);
@@ -227,7 +263,7 @@ function parseFragment(html, doc) {
 // out, then awaits transitionend (with a hard timeout) before removing
 // the element from the DOM.  If the host CSS doesn't define an exit
 // transition, the timeout still fires and the layer is removed cleanly.
-function animateOut(layer) {
+function animateOut(layer, timeoutMs = LEAVE_TIMEOUT_FALLBACK_MS) {
   return new Promise((resolve) => {
     let done = false;
     const finish = () => {
@@ -239,8 +275,19 @@ function animateOut(layer) {
     };
     layer.addEventListener("transitionend", finish, { once: true });
     layer.dataset.leaving = "";
-    setTimeout(finish, LEAVE_TIMEOUT_MS);
+    setTimeout(finish, timeoutMs);
   });
+}
+
+// Parses a CSS time token ("220ms", "0.22s", "  220 ms ") to milliseconds.
+// Returns NaN when the input is empty or unparseable so callers can fall back.
+function parseDurationMs(raw) {
+  if (typeof raw !== "string") return NaN;
+  const value = raw.trim();
+  if (!value) return NaN;
+  const num = parseFloat(value);
+  if (!Number.isFinite(num)) return NaN;
+  return /m?s$/i.test(value) && !/ms$/i.test(value) ? num * 1000 : num;
 }
 
 function escapeAttr(value) {
