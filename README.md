@@ -9,9 +9,10 @@ browser back/forward support, and drive everything from imperative Turbo
 Stream actions (`modal_push`, `modal_pop`, `modal_replace`, `modal_close_all`).
 
 [![CI](https://github.com/Metalzoid/modal_stack/actions/workflows/main.yml/badge.svg)](https://github.com/Metalzoid/modal_stack/actions)
-[![Gem Version](https://badge.fury.io/rb/modal_stack.svg)](https://rubygems.org/gems/modal_stack)
-[![Ruby](https://img.shields.io/gem/ruby-version/modal_stack?label=ruby)](https://www.ruby-lang.org/)
-[![Rails](https://img.shields.io/gem/dv/modal_stack/railties?label=rails)](https://rubyonrails.org/)
+[![Gem Version](https://img.shields.io/gem/v/modal_stack.svg?label=gem)](https://rubygems.org/gems/modal_stack)
+[![Downloads](https://img.shields.io/gem/dt/modal_stack?label=downloads)](https://rubygems.org/gems/modal_stack)
+[![Ruby](https://img.shields.io/badge/ruby-%3E%3D%203.2-CC342D?logo=ruby&logoColor=white)](https://www.ruby-lang.org/)
+[![Rails](https://img.shields.io/badge/rails-7.2%20%7C%208.0%20%7C%208.1-CC0000?logo=rubyonrails&logoColor=white)](https://rubyonrails.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE.txt)
 
 </div>
