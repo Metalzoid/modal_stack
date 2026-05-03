@@ -12,6 +12,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.3.0] - 2026-05-03
+
+### Added
+- **Prefetch cache + dedupe** in `Orchestrator`: fragments fetched for `push` / `replaceTop` are cached per URL (TTL 30 s) and concurrent prefetches for the same URL share a single in-flight request. Aborts pending requests on `closeAll` and on stack-mismatching `popstate`.
+- **Hover/focus prefetch** on `modal-stack-link`: links warm the cache on `pointerenter` / `focus` so the modal opens with no network latency on click. Opt out with `data-modal-stack-link-prefetch="false"`.
+- **`Orchestrator#prefetch(url)`** public method (and matching `ModalStackController#prefetch`) for warming the cache from app code.
+- **Request-scoped configuration** via `controller.modal_stack_config` (helper-method exposed). Rendering helpers now read configuration once per request instead of once per call.
+- New tests: prefetch dedupe / cache hit / TTL / abort-on-closeAll / `prefetch` API; CSS-derived leave timeout.
+
+### Changed
+- **Animation safety timeout** is now derived from the `--modal-stack-duration` CSS variable on the `<dialog>` (1.5× the declared duration, floored at 300 ms). Falls back to 600 ms when the variable is unset, so existing host CSS keeps working.
+- `BrowserRuntime#fetchFragment` accepts an `{ signal }` option to support `AbortController` cancellation.
+
 ## [0.2.0] - 2026-05-03
 
 ### Added
