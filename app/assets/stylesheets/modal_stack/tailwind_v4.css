@@ -31,7 +31,11 @@
   --modal-stack-fg: var(--color-slate-900, #0f172a);
   --modal-stack-shadow: var(--shadow-2xl, 0 30px 60px -20px rgba(15, 23, 42, 0.35));
   --modal-stack-backdrop: rgba(15, 23, 42, 0.55);
-  --modal-stack-backdrop-blur: 2px;
+  /* Blur off by default — animating `backdrop-filter` on a fullscreen
+   * surface costs ~190ms/frame on Hi-DPI displays (Retina, 4K). Opt
+   * in by overriding to e.g. `8px` on `:root`; the blur is applied
+   * statically when the dialog opens (no per-frame compositor cost). */
+  --modal-stack-backdrop-blur: 0;
   --modal-stack-panel-padding: 24px;
   --modal-stack-size-sm: var(--container-sm, 24rem);   /* 384px */
   --modal-stack-size-md: 34rem;                        /* 544px — no v4 container alias */
@@ -83,23 +87,23 @@ body[data-modal-stack-locked] {
 
 #modal-stack-root::backdrop {
   background: rgba(15, 23, 42, 0);
-  backdrop-filter: blur(0);
   transition:
     background var(--modal-stack-duration) var(--modal-stack-ease),
-    backdrop-filter var(--modal-stack-duration) var(--modal-stack-ease),
     overlay var(--modal-stack-duration) var(--modal-stack-ease) allow-discrete,
     display var(--modal-stack-duration) var(--modal-stack-ease) allow-discrete;
 }
 
 #modal-stack-root[open]::backdrop {
   background: var(--modal-stack-backdrop);
+  /* Blur is intentionally NOT in the transition list above — it's
+   * applied statically when [open] is set, so the cost is paid once
+   * (or never if --modal-stack-backdrop-blur stays at 0). */
   backdrop-filter: blur(var(--modal-stack-backdrop-blur));
 }
 
 @starting-style {
   #modal-stack-root[open]::backdrop {
     background: rgba(15, 23, 42, 0);
-    backdrop-filter: blur(0);
   }
 }
 
@@ -121,8 +125,7 @@ body[data-modal-stack-locked] {
   transform: translate(-50%, -50%);
   transition:
     transform var(--modal-stack-duration) var(--modal-stack-ease),
-    opacity var(--modal-stack-duration) var(--modal-stack-ease),
-    filter var(--modal-stack-duration) var(--modal-stack-ease);
+    opacity var(--modal-stack-duration) var(--modal-stack-ease);
 }
 
 @starting-style {
@@ -140,7 +143,6 @@ body[data-modal-stack-locked] {
 
 [data-modal-stack-target="layer"][inert] {
   opacity: 0.5;
-  filter: blur(0.5px);
 }
 
 /* --- Sizes via [data-modal-stack-size] ----------------------------- */

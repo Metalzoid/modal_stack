@@ -60,23 +60,22 @@ body[data-modal-stack-locked] {
 
 #modal-stack-root::backdrop {
   background: rgba(0, 0, 0, 0);
-  backdrop-filter: blur(0);
   transition:
     background var(--modal-stack-duration) var(--modal-stack-ease),
-    backdrop-filter var(--modal-stack-duration) var(--modal-stack-ease),
     overlay var(--modal-stack-duration) var(--modal-stack-ease) allow-discrete,
     display var(--modal-stack-duration) var(--modal-stack-ease) allow-discrete;
 }
 
 #modal-stack-root[open]::backdrop {
   background: var(--modal-stack-backdrop);
+  /* Blur applied statically when [open] is set. Default 0 — opt in
+   * via --modal-stack-backdrop-blur on :root. */
   backdrop-filter: blur(var(--modal-stack-backdrop-blur));
 }
 
 @starting-style {
   #modal-stack-root[open]::backdrop {
     background: rgba(0, 0, 0, 0);
-    backdrop-filter: blur(0);
   }
 }
 
@@ -96,8 +95,7 @@ body[data-modal-stack-locked] {
   transform: translate(-50%, -50%);
   transition:
     transform var(--modal-stack-duration) var(--modal-stack-ease),
-    opacity var(--modal-stack-duration) var(--modal-stack-ease),
-    filter var(--modal-stack-duration) var(--modal-stack-ease);
+    opacity var(--modal-stack-duration) var(--modal-stack-ease);
 }
 
 @starting-style {
@@ -115,7 +113,6 @@ body[data-modal-stack-locked] {
 
 [data-modal-stack-target="layer"][inert] {
   opacity: 0.5;
-  filter: blur(0.5px);
 }
 
 [data-modal-stack-target="layer"][data-modal-stack-size="sm"] { width: var(--modal-stack-size-sm); }

@@ -27,6 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Animation safety timeout** is now derived from the `--modal-stack-duration` CSS variable on the `<dialog>` (1.5× the declared duration, floored at 300 ms). Falls back to 600 ms when the variable is unset, so existing host CSS keeps working.
 - `BrowserRuntime#fetchFragment` accepts an `{ signal }` option to support `AbortController` cancellation.
+- **CSS preset perf overhaul**: removed animated blur from all four presets — animating `backdrop-filter: blur(2px)` on a fullscreen surface costs ~190 ms/frame on Hi-DPI displays (Retina, 4K), which collapsed modal animations to ~5 fps.
+  - `--modal-stack-backdrop-blur` default is now `0` in every preset (was `2px` in `tailwind`). Apps that want a blurred backdrop can opt in by setting `--modal-stack-backdrop-blur: 8px` (or any value) on `:root`.
+  - `backdrop-filter` is no longer in the backdrop's `transition` list — when the user opts in, the blur is applied statically when the dialog opens, so the cost is paid once and the per-frame compositor work disappears.
+  - `filter: blur(0.5px)` on inert (underlying) layers has been dropped — only `opacity: 0.5` remains. The blur was visually negligible on screen but forced an extra GPU layer per stacked modal.
+  - The `filter` property has been removed from the layer's `transition` list since nothing animates it any more.
 - **`config.css_provider` default** is now `:tailwind_v3` (was `:tailwind`). Existing apps with `config.css_provider = :tailwind` keep working — the alias is normalized to `:tailwind_v3` on assignment, with no rendered CSS change.
 - **Generator default `--css-provider`** is now `tailwind_v4` for new installs (was `tailwind`). Run `bin/rails g modal_stack:install --css-provider=tailwind_v3` to opt back in to the v3 preset, or pass the legacy `tailwind` flag — it's normalized to `tailwind_v3` in the generated initializer.
 - The `app/assets/stylesheets/modal_stack/tailwind.css` file has been renamed to `tailwind_v3.css`. Sprockets manifests written by previous installs that contain `//= link modal_stack/tailwind.css` need the line updated to `tailwind_v3.css` (or `tailwind_v4.css`). Importmap / jsbundling installs aren't affected — they don't reference the stylesheet by filename.
