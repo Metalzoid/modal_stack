@@ -2,6 +2,8 @@ import {
   closeAll,
   createStack,
   handlePopstate,
+  pathBack,
+  pathTo,
   pop,
   push,
   replaceTop,
@@ -104,18 +106,53 @@ export class Orchestrator {
     return this.#dispatch(replaceTop(this.state, patch, opts), { html, fragment });
   }
 
+  /**
+   * Append a frame to the top layer's path.
+   * @param {{ url: string, stale?: boolean }} frame
+   * @param {{ html?: string|null, fragment?: DocumentFragment|null, transition?: string|null }} [options]
+   */
+  async pathTo(frame, { html = null, fragment = null, transition = null } = {}) {
+    let resolvedStale = frame?.stale === true;
+    if (fragment == null && html == null && frame?.url) {
+      const meta = await this.#prefetchWithMeta(frame.url);
+      fragment = meta.fragment;
+      // The caller's explicit `stale: true` always wins; if they didn't say,
+      // honor the X-Modal-Stack-Stale response header surfaced by the runtime.
+      if (frame.stale !== true && meta.stale === true) resolvedStale = true;
+    }
+    return this.#dispatch(
+      pathTo(this.state, { url: frame.url, stale: resolvedStale }, { transition }),
+      { html, fragment },
+    );
+  }
+
+  /**
+   * Step back through frames in the top layer's path.
+   * @param {{ steps?: number, transition?: string|null }} [options]
+   */
+  pathBack({ steps = 1, transition = null } = {}) {
+    return this.#dispatch(pathBack(this.state, { steps, transition }));
+  }
+
   async #prefetch(url) {
-    if (typeof this.runtime.fetchFragment !== "function") return null;
+    const meta = await this.#prefetchWithMeta(url);
+    return meta.fragment;
+  }
+
+  async #prefetchWithMeta(url) {
+    if (typeof this.runtime.fetchFragment !== "function") {
+      return { fragment: null, stale: false };
+    }
 
     const cached = this.#fragmentCache.get(url);
     if (cached && Date.now() - cached.ts < this.prefetchTtlMs) {
-      return cloneFragment(cached.fragment);
+      return { fragment: cloneFragment(cached.fragment), stale: cached.stale === true };
     }
 
     const existing = this.#inflight.get(url);
     if (existing) {
       const entry = await existing.promise;
-      return cloneFragment(entry.fragment);
+      return { fragment: cloneFragment(entry.fragment), stale: entry.stale === true };
     }
 
     const controller = supportsAbort() ? new AbortController() : null;
@@ -137,7 +174,7 @@ export class Orchestrator {
 
     this.#inflight.set(url, { controller, promise: fetchPromise });
     const entry = await fetchPromise;
-    return cloneFragment(entry.fragment);
+    return { fragment: cloneFragment(entry.fragment), stale: entry.stale === true };
   }
 
   // Aborts every in-flight prefetch and forgets any cached fragments.
@@ -188,7 +225,11 @@ export class Orchestrator {
   async #dispatch({ state, commands }, payload = {}) {
     this.state = state;
     for (const cmd of commands) {
-      if (cmd.type === "mountLayer" || cmd.type === "morphTopLayer") {
+      if (
+        cmd.type === "mountLayer" ||
+        cmd.type === "morphTopLayer" ||
+        cmd.type === "mountFrame"
+      ) {
         if (payload.html != null) cmd.html = payload.html;
         if (payload.fragment != null) cmd.fragment = payload.fragment;
       }
