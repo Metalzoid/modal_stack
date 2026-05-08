@@ -23,6 +23,9 @@ function recordingRuntime() {
     "rebuildFromSnapshot",
     "persistSnapshot",
     "clearSnapshot",
+    "mountFrame",
+    "unmountFrame",
+    "clearFrameCache",
   ];
   const runtime = { _calls: calls };
   for (const name of handlerNames) {
@@ -210,6 +213,8 @@ describe("closeAll", () => {
     expect(types).toEqual([
       "closeDialog",
       "unmountAllLayers",
+      "clearFrameCache",
+      "clearFrameCache",
       "unlockScroll",
       "historyBack",
       "clearSnapshot",
@@ -256,6 +261,9 @@ describe("prefetch cache + abort", () => {
       "rebuildFromSnapshot",
       "persistSnapshot",
       "clearSnapshot",
+      "mountFrame",
+      "unmountFrame",
+      "clearFrameCache",
     ];
     const runtime = { _calls: calls, _fetches: [], _aborts: aborts };
     for (const name of handlerNames) {
@@ -467,6 +475,7 @@ describe("onPopstate", () => {
     expect(types).toEqual([
       "closeDialog",
       "unmountAllLayers",
+      "clearFrameCache",
       "unlockScroll",
       "clearSnapshot",
     ]);

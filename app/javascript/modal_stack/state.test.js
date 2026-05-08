@@ -4,6 +4,8 @@ import {
   createStack,
   handlePopstate,
   ModalStackDepthError,
+  pathBack,
+  pathTo,
   pop,
   push,
   replaceTop,
@@ -80,10 +82,19 @@ describe("push", () => {
       {
         type: "pushHistory",
         url: "/projects/42/edit",
-        historyState: { stackId: STACK_ID, layerId: "L1", depth: 1 },
+        historyState: { stackId: STACK_ID, layerId: "L1", depth: 1, frameIndex: 0 },
       },
       { type: "persistSnapshot" },
     ]);
+  });
+
+  test("first layer carries a single-frame array", () => {
+    const { state } = pushed(freshStack());
+    expect(state.layers[0].frames).toEqual([
+      { url: "/projects/42/edit", stale: false },
+    ]);
+    expect(Object.isFrozen(state.layers[0].frames)).toBe(true);
+    expect(Object.isFrozen(state.layers[0].frames[0])).toBe(true);
   });
 
   test("preserves side and size for drawer layers", () => {
@@ -270,7 +281,7 @@ describe("push", () => {
     expect(commands).toContainEqual({
       type: "pushHistory",
       url: "/clients/new",
-      historyState: { stackId: STACK_ID, layerId: "L2", depth: 2 },
+      historyState: { stackId: STACK_ID, layerId: "L2", depth: 2, frameIndex: 0 },
     });
   });
 
@@ -296,6 +307,181 @@ describe("push", () => {
   });
 });
 
+describe("pathTo", () => {
+  test("throws on empty stack", () => {
+    expect(() => pathTo(freshStack(), { url: "/x" })).toThrow(/at least one layer/);
+  });
+
+  test("requires a frame.url", () => {
+    const s = pushed(freshStack()).state;
+    expect(() => pathTo(s, {})).toThrow(/frame\.url/);
+    expect(() => pathTo(s, { url: "" })).toThrow(/frame\.url/);
+  });
+
+  test("appends a frame to the top layer and emits mountFrame + pushHistory", () => {
+    const s = pushed(freshStack()).state;
+    const { state, commands } = pathTo(s, { url: "/projects/42/edit/step2" });
+
+    expect(state.layers).toHaveLength(1);
+    expect(state.layers[0].id).toBe("L1");
+    expect(state.layers[0].url).toBe("/projects/42/edit/step2");
+    expect(state.layers[0].frames).toEqual([
+      { url: "/projects/42/edit", stale: false },
+      { url: "/projects/42/edit/step2", stale: false },
+    ]);
+
+    expect(commands).toEqual([
+      {
+        type: "mountFrame",
+        layerId: "L1",
+        fromFrameIndex: 0,
+        toFrameIndex: 1,
+        url: "/projects/42/edit/step2",
+        stale: false,
+      },
+      {
+        type: "pushHistory",
+        url: "/projects/42/edit/step2",
+        historyState: { stackId: STACK_ID, layerId: "L1", depth: 1, frameIndex: 1 },
+      },
+      { type: "persistSnapshot" },
+    ]);
+  });
+
+  test("propagates stale flag and transition option", () => {
+    const s = pushed(freshStack()).state;
+    const { state, commands } = pathTo(
+      s,
+      { url: "/projects/42/edit/step2", stale: true },
+      { transition: "fade" },
+    );
+    expect(state.layers[0].frames[1].stale).toBe(true);
+    expect(commands[0]).toMatchObject({
+      type: "mountFrame",
+      stale: true,
+      transition: "fade",
+    });
+  });
+
+  test("rejects unknown transition", () => {
+    const s = pushed(freshStack()).state;
+    expect(() => pathTo(s, { url: "/x" }, { transition: "warp" })).toThrow(
+      /unknown transition/,
+    );
+  });
+
+  test("targets the top layer when several layers are stacked", () => {
+    let s = pushed(freshStack()).state;
+    s = push(s, { id: "L2", url: "/clients/new" }).state;
+    const { state, commands } = pathTo(s, { url: "/clients/new/contact" });
+    expect(state.layers[0].frames).toEqual([
+      { url: "/projects/42/edit", stale: false },
+    ]);
+    expect(state.layers[1].frames).toEqual([
+      { url: "/clients/new", stale: false },
+      { url: "/clients/new/contact", stale: false },
+    ]);
+    expect(commands[0]).toMatchObject({ layerId: "L2", toFrameIndex: 1 });
+  });
+});
+
+describe("pathBack", () => {
+  test("throws on empty stack", () => {
+    expect(() => pathBack(freshStack())).toThrow(/at least one layer/);
+  });
+
+  test("rejects non-positive steps", () => {
+    const s = pushed(freshStack()).state;
+    expect(() => pathBack(s, { steps: 0 })).toThrow(/positive integer/);
+    expect(() => pathBack(s, { steps: -1 })).toThrow(/positive integer/);
+    expect(() => pathBack(s, { steps: NaN })).toThrow(/positive integer/);
+  });
+
+  test("on a single-frame layer is a noop (does not close the layer)", () => {
+    const s = pushed(freshStack()).state;
+    const result = pathBack(s);
+    expect(result.state).toBe(s);
+    expect(result.commands).toEqual([]);
+  });
+
+  test("steps back one frame by default and emits unmountFrame + historyBack", () => {
+    let s = pushed(freshStack()).state;
+    s = pathTo(s, { url: "/projects/42/edit/step2" }).state;
+
+    const { state, commands } = pathBack(s);
+    expect(state.layers[0].frames).toEqual([
+      { url: "/projects/42/edit", stale: false },
+    ]);
+    expect(state.layers[0].url).toBe("/projects/42/edit");
+
+    expect(commands).toEqual([
+      {
+        type: "unmountFrame",
+        layerId: "L1",
+        fromFrameIndex: 1,
+        toFrameIndex: 0,
+        url: "/projects/42/edit",
+        stale: false,
+      },
+      { type: "historyBack", n: 1 },
+      { type: "persistSnapshot" },
+    ]);
+  });
+
+  test("steps back N frames in one shot", () => {
+    let s = pushed(freshStack()).state;
+    s = pathTo(s, { url: "/projects/42/edit/step2" }).state;
+    s = pathTo(s, { url: "/projects/42/edit/step3" }).state;
+
+    const { state, commands } = pathBack(s, { steps: 2 });
+    expect(state.layers[0].frames).toHaveLength(1);
+    expect(state.layers[0].url).toBe("/projects/42/edit");
+    expect(commands).toEqual([
+      {
+        type: "unmountFrame",
+        layerId: "L1",
+        fromFrameIndex: 2,
+        toFrameIndex: 0,
+        url: "/projects/42/edit",
+        stale: false,
+      },
+      { type: "historyBack", n: 2 },
+      { type: "persistSnapshot" },
+    ]);
+  });
+
+  test("clamps steps to keep at least the first frame", () => {
+    let s = pushed(freshStack()).state;
+    s = pathTo(s, { url: "/projects/42/edit/step2" }).state;
+    s = pathTo(s, { url: "/projects/42/edit/step3" }).state;
+
+    const { state, commands } = pathBack(s, { steps: 99 });
+    expect(state.layers[0].frames).toHaveLength(1);
+    expect(commands.find((c) => c.type === "historyBack")).toEqual({
+      type: "historyBack",
+      n: 2,
+    });
+  });
+
+  test("preserves the stale flag of the destination frame", () => {
+    let s = pushed(freshStack()).state;
+    s = pathTo(s, { url: "/step2", stale: true }).state;
+    s = pathTo(s, { url: "/step3" }).state;
+    const { commands } = pathBack(s);
+    expect(commands[0]).toMatchObject({
+      type: "unmountFrame",
+      stale: true,
+      url: "/step2",
+    });
+  });
+
+  test("rejects unknown transition", () => {
+    let s = pushed(freshStack()).state;
+    s = pathTo(s, { url: "/step2" }).state;
+    expect(() => pathBack(s, { transition: "warp" })).toThrow(/unknown transition/);
+  });
+});
+
 describe("pop", () => {
   test("noop on empty stack", () => {
     const s = freshStack();
@@ -311,6 +497,7 @@ describe("pop", () => {
     expect(commands).toEqual([
       { type: "closeDialog" },
       { type: "unmountTopLayer" },
+      { type: "clearFrameCache", layerId: "L1" },
       { type: "historyBack", n: 1 },
       { type: "unlockScroll" },
       { type: "clearSnapshot" },
@@ -324,9 +511,26 @@ describe("pop", () => {
     expect(state.layers).toHaveLength(1);
     expect(commands).toEqual([
       { type: "unmountTopLayer" },
+      { type: "clearFrameCache", layerId: "L2" },
       { type: "historyBack", n: 1 },
       { type: "inertLayer", layerId: "L1", value: false },
       { type: "persistSnapshot" },
+    ]);
+  });
+
+  test("popping a layer with a path walks history back across all its frames", () => {
+    let s = pushed(freshStack()).state;
+    s = pathTo(s, { url: "/projects/42/edit/step2" }).state;
+    s = pathTo(s, { url: "/projects/42/edit/step3" }).state;
+    const { state, commands } = pop(s);
+    expect(state.layers).toEqual([]);
+    expect(commands).toEqual([
+      { type: "closeDialog" },
+      { type: "unmountTopLayer" },
+      { type: "clearFrameCache", layerId: "L1" },
+      { type: "historyBack", n: 3 },
+      { type: "unlockScroll" },
+      { type: "clearSnapshot" },
     ]);
   });
 });
@@ -355,7 +559,7 @@ describe("replaceTop", () => {
       {
         type: "replaceHistory",
         url: "/projects/42/edit/billing",
-        historyState: { stackId: STACK_ID, layerId: "L1", depth: 1 },
+        historyState: { stackId: STACK_ID, layerId: "L1", depth: 1, frameIndex: 0 },
       },
       { type: "persistSnapshot" },
     ]);
@@ -400,8 +604,36 @@ describe("replaceTop", () => {
     expect(commands[1]).toEqual({
       type: "pushHistory",
       url: "/onboarding/step2",
-      historyState: { stackId: STACK_ID, layerId: "L1b", depth: 1 },
+      historyState: { stackId: STACK_ID, layerId: "L1b", depth: 1, frameIndex: 0 },
     });
+  });
+
+  test("collapses path frames and walks history back the surplus", () => {
+    let s = pushed(freshStack()).state;
+    s = pathTo(s, { url: "/projects/42/edit/step2" }).state;
+    s = pathTo(s, { url: "/projects/42/edit/step3" }).state;
+    const { state, commands } = replaceTop(s, { url: "/projects/42/edit/billing" });
+    expect(state.layers[0].frames).toEqual([
+      { url: "/projects/42/edit/billing", stale: false },
+    ]);
+    expect(commands).toEqual([
+      { type: "clearFrameCache", layerId: "L1" },
+      { type: "historyBack", n: 2 },
+      {
+        type: "morphTopLayer",
+        layerId: "L1",
+        url: "/projects/42/edit/billing",
+        depth: 1,
+        variant: "modal",
+        dismissible: true,
+      },
+      {
+        type: "replaceHistory",
+        url: "/projects/42/edit/billing",
+        historyState: { stackId: STACK_ID, layerId: "L1", depth: 1, frameIndex: 0 },
+      },
+      { type: "persistSnapshot" },
+    ]);
   });
 
   test("rejects unknown historyMode", () => {
@@ -427,10 +659,22 @@ describe("closeAll", () => {
     expect(commands).toEqual([
       { type: "closeDialog" },
       { type: "unmountAllLayers" },
+      { type: "clearFrameCache", layerId: "L1" },
+      { type: "clearFrameCache", layerId: "L2" },
+      { type: "clearFrameCache", layerId: "L3" },
       { type: "unlockScroll" },
       { type: "historyBack", n: 3 },
       { type: "clearSnapshot" },
     ]);
+  });
+
+  test("counts every frame across every layer when walking history back", () => {
+    let s = pushed(freshStack()).state;
+    s = pathTo(s, { url: "/projects/42/edit/step2" }).state;
+    s = push(s, { id: "L2", url: "/clients/new" }).state;
+    s = pathTo(s, { url: "/clients/new/contact" }).state;
+    const { commands } = closeAll(s);
+    expect(commands).toContainEqual({ type: "historyBack", n: 4 });
   });
 });
 
@@ -451,6 +695,8 @@ describe("handlePopstate", () => {
     expect(commands).toEqual([
       { type: "closeDialog" },
       { type: "unmountAllLayers" },
+      { type: "clearFrameCache", layerId: "L1" },
+      { type: "clearFrameCache", layerId: "L2" },
       { type: "unlockScroll" },
       { type: "clearSnapshot" },
     ]);
@@ -467,12 +713,13 @@ describe("handlePopstate", () => {
   test("back: targetDepth < current pops layers and un-inerts new top (no historyBack)", () => {
     const s = buildTwoLayer();
     const { state, commands } = handlePopstate(s, {
-      historyState: { stackId: STACK_ID, layerId: "L1", depth: 1 },
+      historyState: { stackId: STACK_ID, layerId: "L1", depth: 1, frameIndex: 0 },
       locationHref: "/projects/42/edit",
     });
     expect(state.layers.map((l) => l.id)).toEqual(["L1"]);
     expect(commands).toEqual([
       { type: "unmountTopLayer" },
+      { type: "clearFrameCache", layerId: "L2" },
       { type: "inertLayer", layerId: "L1", value: false },
       { type: "persistSnapshot" },
     ]);
@@ -490,6 +737,8 @@ describe("handlePopstate", () => {
       { type: "closeDialog" },
       { type: "unmountTopLayer" },
       { type: "unmountTopLayer" },
+      { type: "clearFrameCache", layerId: "L1" },
+      { type: "clearFrameCache", layerId: "L2" },
       { type: "unlockScroll" },
       { type: "clearSnapshot" },
     ]);
@@ -514,7 +763,7 @@ describe("handlePopstate", () => {
       { historyMode: "push" },
     ).state;
     const { state, commands } = handlePopstate(after, {
-      historyState: { stackId: STACK_ID, layerId: "L1", depth: 1 },
+      historyState: { stackId: STACK_ID, layerId: "L1", depth: 1, frameIndex: 0 },
       locationHref: "/onboarding/step1",
     });
     expect(state.layers[0]).toMatchObject({
@@ -522,6 +771,7 @@ describe("handlePopstate", () => {
       url: "/onboarding/step1",
     });
     expect(commands).toEqual([
+      { type: "clearFrameCache", layerId: "L1b" },
       {
         type: "morphTopLayer",
         layerId: "L1",
@@ -537,11 +787,55 @@ describe("handlePopstate", () => {
   test("same depth, same layerId is a noop", () => {
     const s = pushed(freshStack()).state;
     const { state, commands } = handlePopstate(s, {
-      historyState: { stackId: STACK_ID, layerId: "L1", depth: 1 },
+      historyState: { stackId: STACK_ID, layerId: "L1", depth: 1, frameIndex: 0 },
       locationHref: "/projects/42/edit",
     });
     expect(state).toEqual(s);
     expect(commands).toEqual([]);
+  });
+
+  test("back through frames: same layer, lower frameIndex steps back in path", () => {
+    let s = pushed(freshStack()).state;
+    s = pathTo(s, { url: "/projects/42/edit/step2" }).state;
+    s = pathTo(s, { url: "/projects/42/edit/step3" }).state;
+
+    const { state, commands } = handlePopstate(s, {
+      historyState: { stackId: STACK_ID, layerId: "L1", depth: 1, frameIndex: 1 },
+      locationHref: "/projects/42/edit/step2",
+    });
+
+    expect(state.layers[0].frames).toEqual([
+      { url: "/projects/42/edit", stale: false },
+      { url: "/projects/42/edit/step2", stale: false },
+    ]);
+    expect(state.layers[0].url).toBe("/projects/42/edit/step2");
+    expect(commands).toEqual([
+      {
+        type: "unmountFrame",
+        layerId: "L1",
+        fromFrameIndex: 2,
+        toFrameIndex: 1,
+        url: "/projects/42/edit/step2",
+        stale: false,
+      },
+      { type: "persistSnapshot" },
+    ]);
+  });
+
+  test("forward popstate to a frame we no longer track defers to snapshot rebuild", () => {
+    let s = pushed(freshStack()).state;
+    s = pathTo(s, { url: "/projects/42/edit/step2" }).state;
+    // user pressed back, dropping the step2 frame from state
+    s = pathBack(s).state;
+
+    const { state, commands } = handlePopstate(s, {
+      historyState: { stackId: STACK_ID, layerId: "L1", depth: 1, frameIndex: 1 },
+      locationHref: "/projects/42/edit/step2",
+    });
+    expect(state).toEqual(s);
+    expect(commands).toEqual([
+      { type: "rebuildFromSnapshot", targetDepth: 1, targetLayerId: "L1" },
+    ]);
   });
 });
 
@@ -575,18 +869,109 @@ describe("snapshot / restore", () => {
     expect(restore("not-json", { stackId: STACK_ID })).toBeNull();
     expect(restore("", { stackId: STACK_ID })).toBeNull();
     expect(restore(null, { stackId: STACK_ID })).toBeNull();
-    expect(restore('{"v":2}', { stackId: STACK_ID })).toBeNull();
+    expect(restore('{"v":3}', { stackId: STACK_ID })).toBeNull();
     expect(restore('{"v":1}', { stackId: STACK_ID })).toBeNull();
   });
 
   test("returns null when a layer has unknown variant", () => {
     const malicious = JSON.stringify({
-      v: 1,
+      v: 2,
       stackId: STACK_ID,
       baseUrl: "/",
       layers: [{ id: "L1", url: "/", variant: "popover", dismissible: true }],
       savedAt: Date.now(),
     });
     expect(restore(malicious, { stackId: STACK_ID })).toBeNull();
+  });
+
+  test("serializes frames as { url, stale } only", () => {
+    let s = pushed(freshStack()).state;
+    s = pathTo(s, { url: "/projects/42/edit/step2", stale: true }).state;
+    const parsed = JSON.parse(snapshot(s));
+    expect(parsed.v).toBe(2);
+    expect(parsed.layers[0].frames).toEqual([
+      { url: "/projects/42/edit", stale: false },
+      { url: "/projects/42/edit/step2", stale: true },
+    ]);
+  });
+
+  test("round-trips a layer with multiple frames", () => {
+    let s = pushed(freshStack()).state;
+    s = pathTo(s, { url: "/projects/42/edit/step2" }).state;
+    s = pathTo(s, { url: "/projects/42/edit/step3", stale: true }).state;
+    const restored = restore(snapshot(s), { stackId: STACK_ID });
+    expect(restored).toEqual(s);
+    expect(restored.layers[0].frames).toHaveLength(3);
+    expect(restored.layers[0].frames[2].stale).toBe(true);
+  });
+
+  test("accepts a v1 snapshot and synthesizes single-frame arrays", () => {
+    const v1 = JSON.stringify({
+      v: 1,
+      stackId: STACK_ID,
+      baseUrl: BASE_URL,
+      layers: [
+        {
+          id: "L1",
+          url: "/projects/42/edit",
+          variant: "modal",
+          dismissible: true,
+          size: null,
+          side: null,
+          width: null,
+          height: null,
+        },
+      ],
+      savedAt: Date.now(),
+    });
+    const restored = restore(v1, { stackId: STACK_ID });
+    expect(restored).not.toBeNull();
+    expect(restored.layers[0].frames).toEqual([
+      { url: "/projects/42/edit", stale: false },
+    ]);
+  });
+
+  test("returns null when a v2 layer has malformed frames", () => {
+    const malicious = JSON.stringify({
+      v: 2,
+      stackId: STACK_ID,
+      baseUrl: BASE_URL,
+      layers: [
+        {
+          id: "L1",
+          url: "/x",
+          variant: "modal",
+          dismissible: true,
+          size: null,
+          side: null,
+          width: null,
+          height: null,
+          frames: [{ stale: false }],
+        },
+      ],
+      savedAt: Date.now(),
+    });
+    expect(restore(malicious, { stackId: STACK_ID })).toBeNull();
+
+    const emptyFrames = JSON.stringify({
+      v: 2,
+      stackId: STACK_ID,
+      baseUrl: BASE_URL,
+      layers: [
+        {
+          id: "L1",
+          url: "/x",
+          variant: "modal",
+          dismissible: true,
+          size: null,
+          side: null,
+          width: null,
+          height: null,
+          frames: [],
+        },
+      ],
+      savedAt: Date.now(),
+    });
+    expect(restore(emptyFrames, { stackId: STACK_ID })).toBeNull();
   });
 });
