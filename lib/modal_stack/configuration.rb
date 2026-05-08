@@ -20,6 +20,7 @@ module ModalStack
     VARIANTS = %i[modal drawer bottom_sheet confirmation].freeze
     SIZES = %i[sm md lg xl].freeze
     MAX_DEPTH_STRATEGIES = %i[raise warn silent].freeze
+    PATH_TRANSITIONS = %i[slide fade none].freeze
 
     attr_accessor :default_classes,
                   :request_header,
@@ -37,24 +38,12 @@ module ModalStack
                 :default_size,
                 :default_dismissible,
                 :max_depth,
-                :max_depth_strategy
+                :max_depth_strategy,
+                :default_path_transition
 
     def initialize
-      @css_provider = :tailwind_v3
-      @assets_mode = :auto
-      @default_variant = :modal
-      @default_size = :md
-      @default_dismissible = true
-      @max_depth = 5
-      @max_depth_strategy = :warn
-      @request_header = "X-Modal-Stack-Request"
-      @dialog_id = "modal-stack-root"
-      @stack_root_data_attribute = "modal-stack"
-      @respect_reduced_motion = true
-      @replace_turbo_confirm = false
-      @i18n_scope = "modal_stack"
-      @initializer_version = nil
-      @silence_initializer_warning = false
+      apply_behavior_defaults
+      apply_naming_defaults
       @default_classes = default_classes_hash
     end
 
@@ -115,7 +104,39 @@ module ModalStack
       @max_depth_strategy = value
     end
 
+    def default_path_transition=(value)
+      value = value.to_sym
+      unless PATH_TRANSITIONS.include?(value)
+        raise ArgumentError,
+              "default_path_transition must be one of #{PATH_TRANSITIONS.inspect}, got #{value.inspect}"
+      end
+
+      @default_path_transition = value
+    end
+
     private
+
+    def apply_behavior_defaults
+      @css_provider = :tailwind_v3
+      @assets_mode = :auto
+      @default_variant = :modal
+      @default_size = :md
+      @default_dismissible = true
+      @max_depth = 5
+      @max_depth_strategy = :warn
+      @default_path_transition = :slide
+      @respect_reduced_motion = true
+      @replace_turbo_confirm = false
+    end
+
+    def apply_naming_defaults
+      @request_header = "X-Modal-Stack-Request"
+      @dialog_id = "modal-stack-root"
+      @stack_root_data_attribute = "modal-stack"
+      @i18n_scope = "modal_stack"
+      @initializer_version = nil
+      @silence_initializer_warning = false
+    end
 
     def default_classes_hash
       {

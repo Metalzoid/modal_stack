@@ -14,6 +14,7 @@ module ModalStack
   module Capybara
     DIALOG_SELECTOR = "#modal-stack-root"
     LAYER_SELECTOR = '[data-modal-stack-target="layer"]:not([data-leaving])'
+    FRAME_SELECTOR = "[data-modal-stack-frame]:not([data-leaving])"
 
     # Scope Capybara matchers to a specific layer of the stack.
     #
@@ -80,6 +81,26 @@ module ModalStack
     # explicit assertion would be clearer than `have_modal_stack`.
     def modal_stack_depth
       ::Capybara.current_session.all(:css, LAYER_SELECTOR, wait: 0).size
+    end
+
+    # Capybara matcher: assert the top layer's path frame depth.
+    #
+    #   expect(page).to have_modal_frames(2)
+    #
+    # Layers without a path read as a single frame.
+    def have_modal_frames(count, **)
+      have_css("#{LAYER_SELECTOR}[data-frame-depth=\"#{count}\"]", **)
+    end
+
+    # Scope Capybara to the *current* frame inside the top (or specified)
+    # layer — i.e. the frame that's not animating out.
+    def within_modal_frame(depth: nil, **, &)
+      layers = ::Capybara.current_session.all(:css, LAYER_SELECTOR, minimum: 1, **)
+      layer = depth ? layers[depth - 1] : layers.last
+      raise ::Capybara::ElementNotFound, "no modal_stack layer at depth #{depth}" unless layer
+
+      frame = layer.first(:css, FRAME_SELECTOR, minimum: 1, **)
+      ::Capybara.current_session.within(frame, &)
     end
   end
 end

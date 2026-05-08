@@ -9,9 +9,11 @@ module ModalStack
         require "modal_stack/helpers/modal_link_helper"
         require "modal_stack/helpers/modal_stack_container_helper"
         require "modal_stack/helpers/modal_stack_assets_helper"
+        require "modal_stack/helpers/modal_back_link_helper"
         include ModalStack::Helpers::ModalLinkHelper
         include ModalStack::Helpers::ModalStackContainerHelper
         include ModalStack::Helpers::ModalStackAssetsHelper
+        include ModalStack::Helpers::ModalBackLinkHelper
       end
     end
 
