@@ -18,7 +18,9 @@
   --modal-stack-fg: #1a1a1a;
   --modal-stack-shadow: 0 24px 60px -16px rgba(0, 0, 0, 0.32);
   --modal-stack-backdrop: rgba(0, 0, 0, 0.5);
-  --modal-stack-backdrop-blur: 0;
+  /* Default `none` so Chrome skips the filter pass. Opt in with
+   * `:root { --modal-stack-backdrop-filter: blur(8px); }`. */
+  --modal-stack-backdrop-filter: none;
   --modal-stack-panel-padding: 20px;
   --modal-stack-size-sm: 320px;
   --modal-stack-size-md: 480px;
@@ -68,9 +70,9 @@ body[data-modal-stack-locked] {
 
 #modal-stack-root[open]::backdrop {
   background: var(--modal-stack-backdrop);
-  /* Blur applied statically when [open] is set. Default 0 — opt in
-   * via --modal-stack-backdrop-blur on :root. */
-  backdrop-filter: blur(var(--modal-stack-backdrop-blur));
+  /* Static. Default is `none` (no filter pass). Opt in with
+   * --modal-stack-backdrop-filter on :root. */
+  backdrop-filter: var(--modal-stack-backdrop-filter);
 }
 
 @starting-style {

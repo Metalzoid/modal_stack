@@ -30,11 +30,13 @@
   --modal-stack-fg: #0f172a;
   --modal-stack-shadow: 0 30px 60px -20px rgba(15, 23, 42, 0.35);
   --modal-stack-backdrop: rgba(15, 23, 42, 0.55);
-  /* Blur off by default — animating `backdrop-filter` on a fullscreen
-   * surface costs ~190ms/frame on Hi-DPI displays (Retina, 4K). Opt
-   * in by overriding to e.g. `8px` on `:root`; the blur is applied
-   * statically when the dialog opens (no per-frame compositor cost). */
-  --modal-stack-backdrop-blur: 0;
+  /* `none` by default — `backdrop-filter: blur()` even at radius 0
+   * still allocates a filter layer on the compositor, and animating
+   * a non-zero radius costs ~190ms/frame on Hi-DPI displays. Opt in
+   * with `:root { --modal-stack-backdrop-filter: blur(8px); }` —
+   * the filter is applied statically when the dialog opens (no
+   * per-frame compositor cost). */
+  --modal-stack-backdrop-filter: none;
   --modal-stack-panel-padding: 24px;
   --modal-stack-size-sm: 24rem;   /* 384px */
   --modal-stack-size-md: 34rem;   /* 544px */
@@ -94,10 +96,10 @@ body[data-modal-stack-locked] {
 
 #modal-stack-root[open]::backdrop {
   background: var(--modal-stack-backdrop);
-  /* Blur is intentionally NOT in the transition list above — it's
-   * applied statically when [open] is set, so the cost is paid once
-   * (or never if --modal-stack-backdrop-blur stays at 0). */
-  backdrop-filter: blur(var(--modal-stack-backdrop-blur));
+  /* Static (not in the transition list above). Default is `none` so
+   * Chrome skips the filter pass entirely. Override --modal-stack-
+   * backdrop-filter to opt in. */
+  backdrop-filter: var(--modal-stack-backdrop-filter);
 }
 
 @starting-style {
