@@ -299,6 +299,28 @@ body[data-modal-stack-locked] {
   gap: 14px;
 }
 
+/* Path frames are transparent layout wrappers — CSS transitions can hook
+   on [data-modal-stack-frame][data-transition][data-direction] to
+   animate slide/fade. */
+[data-modal-stack-frame] {
+  display: contents;
+}
+
+.modal-stack__panel-back {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  align-self: start;
+  justify-self: start;
+}
+
+[data-modal-stack-target="layer"][data-frame-depth="1"] .modal-stack__panel-back {
+  display: none;
+}
+
 /* --- Reduced motion ---------------------------------------------- */
 
 @media (prefers-reduced-motion: reduce) {

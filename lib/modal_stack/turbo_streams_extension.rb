@@ -78,7 +78,7 @@ module ModalStack
         template: template,
         data: modal_data(
           url: url,
-          transition: validate_path_transition(transition),
+          transition: validate_path_transition(resolved_path_transition(transition)),
           stale: stale ? "true" : nil,
           layer_id: layer_id
         )
@@ -95,7 +95,10 @@ module ModalStack
       turbo_stream_action_tag(
         :modal_path_back,
         target: ModalStack::TARGET_ID,
-        data: modal_data(steps: n, transition: validate_path_transition(transition))
+        data: modal_data(
+          steps: n,
+          transition: validate_path_transition(resolved_path_transition(transition))
+        )
       )
     end
 
@@ -114,6 +117,13 @@ module ModalStack
       end
 
       sym
+    end
+
+    # Falls back to the configured default when a call site doesn't
+    # specify a transition. Pass `transition: :none` to disable
+    # explicitly.
+    def resolved_path_transition(value)
+      value || ModalStack.configuration.default_path_transition
     end
   end
 end

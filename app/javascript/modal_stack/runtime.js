@@ -140,11 +140,12 @@ export class BrowserRuntime {
     layer.appendChild(newFrame);
     this.#applyFrameDepth(layer, toFrameIndex);
 
-    if (oldFrame) {
-      if (transition) oldFrame.dataset.transition = transition;
-      oldFrame.dataset.direction = "forward";
-      await animateOut(oldFrame, this.#leaveTimeoutMs());
-    }
+    // Old frame is removed synchronously. Entering frames carry
+    // data-transition + data-direction so host CSS can drive the *enter*
+    // animation via @starting-style; the leaving frame would need its own
+    // overlapping layout (e.g. position: absolute) to also animate out,
+    // which we leave to the host CSS preset.
+    if (oldFrame) oldFrame.remove();
   }
 
   async unmountFrame({ layerId, fromFrameIndex, toFrameIndex, url, stale, transition }) {
@@ -174,11 +175,7 @@ export class BrowserRuntime {
     this.#purgeFrameCacheAbove(layerId, toFrameIndex);
 
     const oldFrame = this.#findFrame(layer, fromFrameIndex);
-    if (oldFrame) {
-      if (transition) oldFrame.dataset.transition = transition;
-      oldFrame.dataset.direction = "back";
-      await animateOut(oldFrame, this.#leaveTimeoutMs());
-    }
+    if (oldFrame) oldFrame.remove();
   }
 
   clearFrameCache({ layerId }) {

@@ -209,6 +209,30 @@ body[data-modal-stack-locked] {
   gap: 12px;
 }
 
+/* Path frames live inside the layer as transparent wrappers. Switching
+   to `display: contents` keeps the wrapper layout-invisible so adding
+   the modal_path feature doesn't change visuals for layers that never
+   navigate forward. Frame-level CSS transitions (slide / fade) can hook
+   on [data-modal-stack-frame][data-transition][data-direction]. */
+[data-modal-stack-frame] {
+  display: contents;
+}
+
+.modal-stack__panel-back {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  align-self: start;
+  justify-self: start;
+}
+
+[data-modal-stack-target="layer"][data-frame-depth="1"] .modal-stack__panel-back {
+  display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   #modal-stack-root,
   #modal-stack-root::backdrop,

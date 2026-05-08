@@ -1,5 +1,32 @@
-// app/javascript/modal_stack/controllers/modal_stack_controller.js
+// app/javascript/modal_stack/controllers/modal_stack_back_link_controller.js
 import { Controller } from "@hotwired/stimulus";
+
+class ModalStackBackLinkController extends Controller {
+  static values = {
+    steps: { type: Number, default: 1 }
+  };
+  trigger(event) {
+    const stackController = this.#stackController();
+    if (!stackController)
+      return;
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    stackController.orchestrator.pathBack({
+      steps: this.stepsValue > 0 ? this.stepsValue : 1
+    });
+  }
+  #stackController() {
+    const stack = document.querySelector('[data-controller~="modal-stack"]');
+    if (!stack)
+      return null;
+    return this.application.getControllerForElementAndIdentifier(stack, "modal-stack");
+  }
+}
+
+// app/javascript/modal_stack/controllers/modal_stack_controller.js
+import { Controller as Controller2 } from "@hotwired/stimulus";
 
 // app/javascript/modal_stack/state.js
 var VARIANTS = Object.freeze([
@@ -8,7 +35,8 @@ var VARIANTS = Object.freeze([
   "bottom_sheet",
   "confirmation"
 ]);
-var SNAPSHOT_VERSION = 1;
+var TRANSITIONS = Object.freeze(["slide", "fade", "none"]);
+var SNAPSHOT_VERSION = 2;
 var DEFAULT_MAX_AGE_MS = 30 * 60 * 1000;
 var DRAWER_SIDES = Object.freeze(["left", "right", "top", "bottom"]);
 var MAX_DEPTH_STRATEGIES = Object.freeze(["raise", "warn", "silent"]);
@@ -33,17 +61,30 @@ function normalizeLayerOptions({ variant, size, side, width, height }) {
     height: height ?? null
   };
 }
-function freezeLayer({ id, url, variant, dismissible, size, side, width, height }) {
+function freezeFrame({ url, stale = false }) {
+  if (typeof url !== "string" || url.length === 0) {
+    throw new Error("frame.url required");
+  }
+  return Object.freeze({ url, stale: !!stale });
+}
+function freezeFrames(frames) {
+  return Object.freeze(frames.map(freezeFrame));
+}
+function freezeLayer({ id, url, variant, dismissible, size, side, width, height, frames }) {
   const normalized = normalizeLayerOptions({ variant, size, side, width, height });
+  const framesArray = Array.isArray(frames) && frames.length > 0 ? frames : [{ url, stale: false }];
+  const frozenFrames = freezeFrames(framesArray);
+  const topUrl = frozenFrames[frozenFrames.length - 1].url;
   return Object.freeze({
     id,
-    url,
+    url: topUrl,
     variant,
     dismissible: !!dismissible,
     size: normalized.size,
     side: normalized.side,
     width: normalized.width,
-    height: normalized.height
+    height: normalized.height,
+    frames: frozenFrames
   });
 }
 function createStack({ stackId, baseUrl }) {
@@ -55,6 +96,20 @@ function createStack({ stackId, baseUrl }) {
 }
 function topLayer(state) {
   return state.layers[state.layers.length - 1] ?? null;
+}
+function totalFrameCount(layers) {
+  let n = 0;
+  for (const l of layers)
+    n += l.frames.length;
+  return n;
+}
+function validateTransition(value) {
+  if (value == null)
+    return null;
+  if (!TRANSITIONS.includes(value)) {
+    throw new Error(`unknown transition: ${value}`);
+  }
+  return value;
 }
 function push(state, layer, options = {}) {
   if (!layer?.id)
@@ -116,26 +171,134 @@ function push(state, layer, options = {}) {
   commands.push({
     type: "pushHistory",
     url: newLayer.url,
-    historyState: { stackId: state.stackId, layerId: newLayer.id, depth }
+    historyState: {
+      stackId: state.stackId,
+      layerId: newLayer.id,
+      depth,
+      frameIndex: 0
+    }
   });
   commands.push({ type: "persistSnapshot" });
   return { state: { ...state, layers }, commands };
 }
+function pathTo(state, frame, options = {}) {
+  if (state.layers.length === 0) {
+    throw new Error("pathTo requires at least one layer");
+  }
+  if (typeof frame?.url !== "string" || frame.url.length === 0) {
+    throw new Error("pathTo requires a frame.url");
+  }
+  const transition = validateTransition(options.transition ?? null);
+  const top = topLayer(state);
+  const previousFrameIndex = top.frames.length - 1;
+  const newFrame = freezeFrame({ url: frame.url, stale: !!frame.stale });
+  const newFrames = [...top.frames, newFrame];
+  const newTop = freezeLayer({
+    id: top.id,
+    url: newFrame.url,
+    variant: top.variant,
+    dismissible: top.dismissible,
+    size: top.size,
+    side: top.side,
+    width: top.width,
+    height: top.height,
+    frames: newFrames
+  });
+  const newLayers = Object.freeze([...state.layers.slice(0, -1), newTop]);
+  const depth = newLayers.length;
+  const newFrameIndex = newFrames.length - 1;
+  return {
+    state: { ...state, layers: newLayers },
+    commands: [
+      {
+        type: "mountFrame",
+        layerId: newTop.id,
+        fromFrameIndex: previousFrameIndex,
+        toFrameIndex: newFrameIndex,
+        url: newFrame.url,
+        stale: newFrame.stale,
+        ...transition ? { transition } : {}
+      },
+      {
+        type: "pushHistory",
+        url: newFrame.url,
+        historyState: {
+          stackId: state.stackId,
+          layerId: newTop.id,
+          depth,
+          frameIndex: newFrameIndex
+        }
+      },
+      { type: "persistSnapshot" }
+    ]
+  };
+}
+function pathBack(state, options = {}) {
+  if (state.layers.length === 0) {
+    throw new Error("pathBack requires at least one layer");
+  }
+  const requestedSteps = options.steps == null ? 1 : Math.floor(options.steps);
+  if (!Number.isFinite(requestedSteps) || requestedSteps < 1) {
+    throw new Error("pathBack: steps must be a positive integer");
+  }
+  const transition = validateTransition(options.transition ?? null);
+  const top = topLayer(state);
+  const fromFrameIndex = top.frames.length - 1;
+  const maxSteps = top.frames.length - 1;
+  const effectiveSteps = Math.min(requestedSteps, maxSteps);
+  if (effectiveSteps === 0)
+    return { state, commands: [] };
+  const toFrameIndex = fromFrameIndex - effectiveSteps;
+  const newFrames = top.frames.slice(0, toFrameIndex + 1);
+  const targetFrame = newFrames[newFrames.length - 1];
+  const newTop = freezeLayer({
+    id: top.id,
+    url: targetFrame.url,
+    variant: top.variant,
+    dismissible: top.dismissible,
+    size: top.size,
+    side: top.side,
+    width: top.width,
+    height: top.height,
+    frames: newFrames
+  });
+  const newLayers = Object.freeze([...state.layers.slice(0, -1), newTop]);
+  return {
+    state: { ...state, layers: newLayers },
+    commands: [
+      {
+        type: "unmountFrame",
+        layerId: newTop.id,
+        fromFrameIndex,
+        toFrameIndex,
+        url: targetFrame.url,
+        stale: targetFrame.stale,
+        ...transition ? { transition } : {}
+      },
+      { type: "historyBack", n: effectiveSteps },
+      { type: "persistSnapshot" }
+    ]
+  };
+}
 function pop(state) {
   if (state.layers.length === 0)
     return { state, commands: [] };
+  const popped = topLayer(state);
+  const framesToWalkBack = popped.frames.length;
   const newLayers = Object.freeze(state.layers.slice(0, -1));
   const newTop = newLayers[newLayers.length - 1] ?? null;
   const commands = [];
   if (newTop) {
     commands.push({ type: "unmountTopLayer" });
-    commands.push({ type: "historyBack", n: 1 });
+    commands.push({ type: "clearFrameCache", layerId: popped.id });
+    commands.push({ type: "historyBack", n: framesToWalkBack });
     commands.push({ type: "inertLayer", layerId: newTop.id, value: false });
     commands.push({ type: "persistSnapshot" });
   } else {
     commands.push({ type: "closeDialog" });
     commands.push({ type: "unmountTopLayer" });
-    commands.push({ type: "historyBack", n: 1 });
+    commands.push({ type: "clearFrameCache", layerId: popped.id });
+    commands.push({ type: "historyBack", n: framesToWalkBack });
     commands.push({ type: "unlockScroll" });
     commands.push({ type: "clearSnapshot" });
   }
@@ -149,6 +312,7 @@ function replaceTop(state, patch, { historyMode = "replace" } = {}) {
     throw new Error(`unknown historyMode: ${historyMode}`);
   }
   const top = topLayer(state);
+  const framesToCollapse = top.frames.length - 1;
   const next = freezeLayer({
     id: patch.id ?? top.id,
     url: patch.url ?? top.url,
@@ -157,44 +321,56 @@ function replaceTop(state, patch, { historyMode = "replace" } = {}) {
     size: patch.size ?? top.size,
     side: patch.side ?? top.side,
     width: patch.width ?? top.width,
-    height: patch.height ?? top.height
+    height: patch.height ?? top.height,
+    frames: undefined
   });
   const newLayers = Object.freeze([...state.layers.slice(0, -1), next]);
   const depth = newLayers.length;
   const historyCmd = {
     type: historyMode === "push" ? "pushHistory" : "replaceHistory",
     url: next.url,
-    historyState: { stackId: state.stackId, layerId: next.id, depth }
+    historyState: {
+      stackId: state.stackId,
+      layerId: next.id,
+      depth,
+      frameIndex: 0
+    }
   };
-  return {
-    state: { ...state, layers: newLayers },
-    commands: [
-      {
-        type: "morphTopLayer",
-        layerId: next.id,
-        url: next.url,
-        depth,
-        variant: next.variant,
-        dismissible: next.dismissible,
-        ...next.size ? { size: next.size } : {},
-        ...next.side ? { side: next.side } : {},
-        ...next.width ? { width: next.width } : {},
-        ...next.height ? { height: next.height } : {}
-      },
-      historyCmd,
-      { type: "persistSnapshot" }
-    ]
-  };
+  const commands = [];
+  if (framesToCollapse > 0) {
+    commands.push({ type: "clearFrameCache", layerId: top.id });
+    commands.push({ type: "historyBack", n: framesToCollapse });
+  }
+  commands.push({
+    type: "morphTopLayer",
+    layerId: next.id,
+    url: next.url,
+    depth,
+    variant: next.variant,
+    dismissible: next.dismissible,
+    ...next.size ? { size: next.size } : {},
+    ...next.side ? { side: next.side } : {},
+    ...next.width ? { width: next.width } : {},
+    ...next.height ? { height: next.height } : {}
+  });
+  commands.push(historyCmd);
+  commands.push({ type: "persistSnapshot" });
+  return { state: { ...state, layers: newLayers }, commands };
 }
 function closeAll(state) {
   if (state.layers.length === 0)
     return { state, commands: [] };
-  const n = state.layers.length;
+  const n = totalFrameCount(state.layers);
+  const cacheClears = state.layers.map((l) => ({
+    type: "clearFrameCache",
+    layerId: l.id
+  }));
   return {
     state: { ...state, layers: Object.freeze([]) },
     commands: [
       { type: "closeDialog" },
       { type: "unmountAllLayers" },
+      ...cacheClears,
       { type: "unlockScroll" },
       { type: "historyBack", n },
       { type: "clearSnapshot" }
@@ -206,11 +382,16 @@ function handlePopstate(state, { historyState, locationHref }) {
   if (!isOurs) {
     if (state.layers.length === 0)
       return { state, commands: [] };
+    const cacheClears = state.layers.map((l) => ({
+      type: "clearFrameCache",
+      layerId: l.id
+    }));
     return {
       state: { ...state, layers: Object.freeze([]) },
       commands: [
         { type: "closeDialog" },
         { type: "unmountAllLayers" },
+        ...cacheClears,
         { type: "unlockScroll" },
         { type: "clearSnapshot" }
       ]
@@ -219,14 +400,19 @@ function handlePopstate(state, { historyState, locationHref }) {
   const targetDepth = historyState.depth ?? 0;
   const currentDepth = state.layers.length;
   const targetLayerId = historyState.layerId ?? null;
+  const targetFrameIndex = historyState.frameIndex ?? 0;
   if (targetDepth < currentDepth) {
+    const droppedLayers = state.layers.slice(targetDepth);
     const newLayers = Object.freeze(state.layers.slice(0, targetDepth));
     const newTop = newLayers[newLayers.length - 1] ?? null;
     const commands = [];
     if (!newTop)
       commands.push({ type: "closeDialog" });
-    for (let i = 0;i < currentDepth - targetDepth; i++) {
+    for (let i = 0;i < droppedLayers.length; i++) {
       commands.push({ type: "unmountTopLayer" });
+    }
+    for (const dropped of droppedLayers) {
+      commands.push({ type: "clearFrameCache", layerId: dropped.id });
     }
     if (newTop) {
       commands.push({ type: "inertLayer", layerId: newTop.id, value: false });
@@ -246,6 +432,51 @@ function handlePopstate(state, { historyState, locationHref }) {
     };
   }
   const top = topLayer(state);
+  if (top && targetLayerId && top.id === targetLayerId) {
+    const currentFrameIndex = top.frames.length - 1;
+    if (targetFrameIndex === currentFrameIndex) {
+      return { state, commands: [] };
+    }
+    if (targetFrameIndex < currentFrameIndex) {
+      const newFrames = top.frames.slice(0, targetFrameIndex + 1);
+      const targetFrame = newFrames[newFrames.length - 1];
+      const updatedTop = freezeLayer({
+        id: top.id,
+        url: targetFrame.url,
+        variant: top.variant,
+        dismissible: top.dismissible,
+        size: top.size,
+        side: top.side,
+        width: top.width,
+        height: top.height,
+        frames: newFrames
+      });
+      const newLayers = Object.freeze([
+        ...state.layers.slice(0, -1),
+        updatedTop
+      ]);
+      return {
+        state: { ...state, layers: newLayers },
+        commands: [
+          {
+            type: "unmountFrame",
+            layerId: top.id,
+            fromFrameIndex: currentFrameIndex,
+            toFrameIndex: targetFrameIndex,
+            url: targetFrame.url,
+            stale: targetFrame.stale
+          },
+          { type: "persistSnapshot" }
+        ]
+      };
+    }
+    return {
+      state,
+      commands: [
+        { type: "rebuildFromSnapshot", targetDepth, targetLayerId }
+      ]
+    };
+  }
   if (top && targetLayerId && top.id !== targetLayerId) {
     const updatedTop = freezeLayer({
       id: targetLayerId,
@@ -264,6 +495,7 @@ function handlePopstate(state, { historyState, locationHref }) {
     return {
       state: { ...state, layers: newLayers },
       commands: [
+        { type: "clearFrameCache", layerId: top.id },
         {
           type: "morphTopLayer",
           layerId: targetLayerId,
@@ -287,9 +519,22 @@ function snapshot(state, { now = Date.now } = {}) {
     v: SNAPSHOT_VERSION,
     stackId: state.stackId,
     baseUrl: state.baseUrl,
-    layers: state.layers,
+    layers: state.layers.map(serializeLayer),
     savedAt: now()
   });
+}
+function serializeLayer(layer) {
+  return {
+    id: layer.id,
+    url: layer.url,
+    variant: layer.variant,
+    dismissible: layer.dismissible,
+    size: layer.size,
+    side: layer.side,
+    width: layer.width,
+    height: layer.height,
+    frames: layer.frames.map((f) => ({ url: f.url, stale: f.stale }))
+  };
 }
 function restore(serialized, { stackId, maxAgeMs = DEFAULT_MAX_AGE_MS, now = Date.now } = {}) {
   if (typeof serialized !== "string" || serialized.length === 0)
@@ -300,7 +545,7 @@ function restore(serialized, { stackId, maxAgeMs = DEFAULT_MAX_AGE_MS, now = Dat
   } catch {
     return null;
   }
-  if (parsed?.v !== SNAPSHOT_VERSION)
+  if (parsed?.v !== 1 && parsed?.v !== SNAPSHOT_VERSION)
     return null;
   if (typeof parsed.stackId !== "string")
     return null;
@@ -319,6 +564,14 @@ function restore(serialized, { stackId, maxAgeMs = DEFAULT_MAX_AGE_MS, now = Dat
       return null;
     if (!VARIANTS.includes(l.variant))
       return null;
+    if (l.frames !== undefined) {
+      if (!Array.isArray(l.frames) || l.frames.length === 0)
+        return null;
+      for (const f of l.frames) {
+        if (!f || typeof f.url !== "string")
+          return null;
+      }
+    }
   }
   return Object.freeze({
     stackId: parsed.stackId,
@@ -383,21 +636,41 @@ class Orchestrator {
     }
     return this.#dispatch(replaceTop(this.state, patch, opts), { html, fragment });
   }
+  async pathTo(frame, { html = null, fragment = null, transition = null } = {}) {
+    let resolvedStale = frame?.stale === true;
+    if (fragment == null && html == null && frame?.url) {
+      const meta = await this.#prefetchWithMeta(frame.url);
+      fragment = meta.fragment;
+      if (frame.stale !== true && meta.stale === true)
+        resolvedStale = true;
+    }
+    return this.#dispatch(pathTo(this.state, { url: frame.url, stale: resolvedStale }, { transition }), { html, fragment });
+  }
+  pathBack({ steps = 1, transition = null } = {}) {
+    return this.#dispatch(pathBack(this.state, { steps, transition }));
+  }
   async#prefetch(url) {
-    if (typeof this.runtime.fetchFragment !== "function")
-      return null;
+    const meta = await this.#prefetchWithMeta(url);
+    return meta.fragment;
+  }
+  async#prefetchWithMeta(url) {
+    if (typeof this.runtime.fetchFragment !== "function") {
+      return { fragment: null, stale: false };
+    }
     const cached = this.#fragmentCache.get(url);
     if (cached && Date.now() - cached.ts < this.prefetchTtlMs) {
-      return cloneFragment(cached.fragment);
+      return { fragment: cloneFragment(cached.fragment), stale: cached.stale === true };
     }
     const existing = this.#inflight.get(url);
     if (existing) {
       const entry2 = await existing.promise;
-      return cloneFragment(entry2.fragment);
+      return { fragment: cloneFragment(entry2.fragment), stale: entry2.stale === true };
     }
     const controller = supportsAbort() ? new AbortController : null;
-    const fetchPromise = this.runtime.fetchFragment(url, controller ? { signal: controller.signal } : undefined).then((fragment) => {
-      const entry2 = { fragment, ts: Date.now() };
+    const fetchPromise = this.runtime.fetchFragment(url, controller ? { signal: controller.signal } : undefined).then((result) => {
+      const fragment = result?.fragment ?? result;
+      const stale = result?.stale === true;
+      const entry2 = { fragment, stale, ts: Date.now() };
       this.#fragmentCache.set(url, entry2);
       return entry2;
     }).finally(() => {
@@ -405,7 +678,7 @@ class Orchestrator {
     });
     this.#inflight.set(url, { controller, promise: fetchPromise });
     const entry = await fetchPromise;
-    return cloneFragment(entry.fragment);
+    return { fragment: cloneFragment(entry.fragment), stale: entry.stale === true };
   }
   #invalidatePrefetch() {
     for (const { controller } of this.#inflight.values()) {
@@ -437,7 +710,7 @@ class Orchestrator {
   async#dispatch({ state, commands }, payload = {}) {
     this.state = state;
     for (const cmd of commands) {
-      if (cmd.type === "mountLayer" || cmd.type === "morphTopLayer") {
+      if (cmd.type === "mountLayer" || cmd.type === "morphTopLayer" || cmd.type === "mountFrame") {
         if (payload.html != null)
           cmd.html = payload.html;
         if (payload.fragment != null)
@@ -477,8 +750,10 @@ function supportsAbort() {
 // app/javascript/modal_stack/runtime.js
 var SNAPSHOT_KEY = "modalStackSnapshot";
 var FRAGMENT_HEADER = "X-Modal-Stack-Request";
+var STALE_HEADER = "X-Modal-Stack-Stale";
 var SCROLLBAR_WIDTH_VAR = "--modal-stack-scrollbar-width";
 var LAYER_SELECTOR = '[data-modal-stack-target="layer"]';
+var FRAME_SELECTOR = "[data-modal-stack-frame]";
 var DURATION_CSS_VAR = "--modal-stack-duration";
 var LEAVE_TIMEOUT_FLOOR_MS = 300;
 var LEAVE_TIMEOUT_FALLBACK_MS = 600;
@@ -504,6 +779,7 @@ class BrowserRuntime {
     this.fetcher = fetcher;
     this.store = store;
     this.document = documentRef;
+    this._frameCache = new Map;
   }
   showDialog() {
     if (!this.dialog.open)
@@ -544,7 +820,10 @@ class BrowserRuntime {
     const frag = await this.#resolveFragment({ url, html, fragment });
     const layer = this.document.createElement("div");
     this.#applyLayerAttrs(layer, { layerId, depth, variant, dismissible, size, side, width, height });
-    layer.append(...frag.childNodes);
+    this.#applyFrameDepth(layer, 0);
+    const wrapper = this.#createFrameWrapper({ frameIndex: 0 });
+    wrapper.append(...frag.childNodes);
+    layer.appendChild(wrapper);
     this.dialog.appendChild(layer);
   }
   async morphTopLayer({ layerId, url, depth, variant, dismissible, size, side, width, height, html, fragment }) {
@@ -553,7 +832,57 @@ class BrowserRuntime {
     if (!layer)
       return;
     this.#applyLayerAttrs(layer, { layerId, depth, variant, dismissible, size, side, width, height });
-    layer.replaceChildren(...frag.childNodes);
+    this.#applyFrameDepth(layer, 0);
+    const wrapper = this.#createFrameWrapper({ frameIndex: 0 });
+    wrapper.append(...frag.childNodes);
+    layer.replaceChildren(wrapper);
+  }
+  async mountFrame({ layerId, fromFrameIndex, toFrameIndex, url, html, fragment, transition }) {
+    const layer = this.#findLayer(layerId);
+    if (!layer)
+      return;
+    const frag = await this.#resolveFragment({ url, html, fragment });
+    const oldFrame = this.#findFrame(layer, fromFrameIndex);
+    if (oldFrame) {
+      const cached = this.document.createDocumentFragment();
+      cached.append(...oldFrame.childNodes);
+      this._frameCache.set(this.#frameKey(layerId, fromFrameIndex), cached);
+    }
+    const newFrame = this.#createFrameWrapper({ frameIndex: toFrameIndex, transition, direction: "forward" });
+    newFrame.append(...frag.childNodes);
+    layer.appendChild(newFrame);
+    this.#applyFrameDepth(layer, toFrameIndex);
+    if (oldFrame)
+      oldFrame.remove();
+  }
+  async unmountFrame({ layerId, fromFrameIndex, toFrameIndex, url, stale, transition }) {
+    const layer = this.#findLayer(layerId);
+    if (!layer)
+      return;
+    const cacheKey = this.#frameKey(layerId, toFrameIndex);
+    let restored = stale ? null : this._frameCache.get(cacheKey) ?? null;
+    if (!restored) {
+      const result = await this.fetchFragment(url);
+      restored = result.fragment;
+      this._frameCache.set(cacheKey, cloneFragment2(restored, this.document));
+    } else {
+      restored = cloneFragment2(restored, this.document);
+    }
+    const newFrame = this.#createFrameWrapper({ frameIndex: toFrameIndex, transition, direction: "back" });
+    newFrame.append(...restored.childNodes);
+    layer.appendChild(newFrame);
+    this.#applyFrameDepth(layer, toFrameIndex);
+    this.#purgeFrameCacheAbove(layerId, toFrameIndex);
+    const oldFrame = this.#findFrame(layer, fromFrameIndex);
+    if (oldFrame)
+      oldFrame.remove();
+  }
+  clearFrameCache({ layerId }) {
+    const prefix = `${layerId}#`;
+    for (const key of [...this._frameCache.keys()]) {
+      if (key.startsWith(prefix))
+        this._frameCache.delete(key);
+    }
   }
   async unmountTopLayer() {
     const layer = this.#topLayer();
@@ -620,6 +949,37 @@ class BrowserRuntime {
   #findLayer(layerId) {
     return this.dialog.querySelector(`${LAYER_SELECTOR}[data-layer-id="${escapeAttr(layerId)}"]`);
   }
+  #findFrame(layer, frameIndex) {
+    return layer.querySelector(`${FRAME_SELECTOR}[data-frame-index="${escapeAttr(String(frameIndex))}"]`);
+  }
+  #frameKey(layerId, frameIndex) {
+    return `${layerId}#${frameIndex}`;
+  }
+  #purgeFrameCacheAbove(layerId, frameIndex) {
+    const prefix = `${layerId}#`;
+    for (const key of [...this._frameCache.keys()]) {
+      if (!key.startsWith(prefix))
+        continue;
+      const idx = Number(key.slice(prefix.length));
+      if (Number.isFinite(idx) && idx > frameIndex) {
+        this._frameCache.delete(key);
+      }
+    }
+  }
+  #createFrameWrapper({ frameIndex, transition = null, direction = null }) {
+    const el = this.document.createElement("div");
+    el.dataset.modalStackFrame = "";
+    el.dataset.frameIndex = String(frameIndex);
+    if (transition)
+      el.dataset.transition = transition;
+    if (direction)
+      el.dataset.direction = direction;
+    return el;
+  }
+  #applyFrameDepth(layer, topFrameIndex) {
+    layer.dataset.frameIndex = String(topFrameIndex);
+    layer.dataset.frameDepth = String(topFrameIndex + 1);
+  }
   #topLayer() {
     const layers = this.dialog.querySelectorAll(LAYER_SELECTOR);
     return layers[layers.length - 1] ?? null;
@@ -666,14 +1026,16 @@ class BrowserRuntime {
       throw new Error(`modal_stack: fetch ${url} → ${resp.status}`);
     }
     const html = await resp.text();
-    return parseFragment(html, this.document);
+    const stale = parseStaleHeader(resp);
+    return { fragment: parseFragment(html, this.document), stale };
   }
   async#resolveFragment({ url, html, fragment }) {
     if (fragment)
       return fragment;
     if (html != null)
       return parseFragment(html, this.document);
-    return this.fetchFragment(url);
+    const result = await this.fetchFragment(url);
+    return result.fragment;
   }
 }
 function parseFragment(html, doc) {
@@ -682,6 +1044,25 @@ function parseFragment(html, doc) {
   const fragment = doc.createDocumentFragment();
   fragment.append(...parsed.body.childNodes);
   return fragment;
+}
+function parseStaleHeader(resp) {
+  const headers = resp?.headers;
+  const value = typeof headers?.get === "function" ? headers.get(STALE_HEADER) ?? headers.get(STALE_HEADER.toLowerCase()) : null;
+  if (!value)
+    return false;
+  const normalized = String(value).trim().toLowerCase();
+  return normalized === "true" || normalized === "1";
+}
+function cloneFragment2(fragment, doc) {
+  if (typeof fragment?.cloneNode === "function") {
+    return fragment.cloneNode(true);
+  }
+  const clone = doc.createDocumentFragment();
+  if (fragment?.childNodes) {
+    for (const node of fragment.childNodes)
+      clone.appendChild(node.cloneNode(true));
+  }
+  return clone;
 }
 function animateOut(layer, timeoutMs = LEAVE_TIMEOUT_FALLBACK_MS) {
   return new Promise((resolve) => {
@@ -718,7 +1099,7 @@ function escapeAttr(value) {
 }
 
 // app/javascript/modal_stack/controllers/modal_stack_controller.js
-class ModalStackController extends Controller {
+class ModalStackController extends Controller2 {
   static values = {
     stackId: String,
     baseUrl: String,
@@ -783,6 +1164,14 @@ class ModalStackController extends Controller {
   prefetch(url) {
     return this.orchestrator.prefetch(url);
   }
+  pathBack(event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    const steps = readSteps(event);
+    return this.orchestrator.pathBack({ steps });
+  }
   #topLayer() {
     const layers = this.orchestrator.layers;
     return layers[layers.length - 1] ?? null;
@@ -822,6 +1211,19 @@ class ModalStackController extends Controller {
     });
     StreamActions.modal_close_all = guarded("modal_close_all", function(orch) {
       return orch.closeAll();
+    });
+    StreamActions.modal_path_to = guarded("modal_path_to", function(orch) {
+      return orch.pathTo(frameFromStreamElement(this), {
+        fragment: this.templateContent.cloneNode(true),
+        transition: this.dataset.transition || null
+      });
+    });
+    StreamActions.modal_path_back = guarded("modal_path_back", function(orch) {
+      const steps = parsePositiveInt(this.dataset.steps, 1);
+      return orch.pathBack({
+        steps,
+        transition: this.dataset.transition || null
+      });
     });
   }
 }
@@ -874,11 +1276,29 @@ function generateLayerId() {
   }
   return `ms-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
+function frameFromStreamElement(el) {
+  return {
+    url: el.dataset.url || window.location.href,
+    stale: el.dataset.stale === "true" || el.dataset.stale === "1"
+  };
+}
+function parsePositiveInt(raw, fallback) {
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+function readSteps(event) {
+  const params = event?.params;
+  if (params && Number.isFinite(params.steps) && params.steps > 0) {
+    return params.steps;
+  }
+  const target = event?.currentTarget ?? event?.target;
+  return parsePositiveInt(target?.dataset?.steps, 1);
+}
 
 // app/javascript/modal_stack/controllers/modal_stack_link_controller.js
-import { Controller as Controller2 } from "@hotwired/stimulus";
+import { Controller as Controller3 } from "@hotwired/stimulus";
 
-class ModalStackLinkController extends Controller2 {
+class ModalStackLinkController extends Controller3 {
   connect() {
     if (this.element.dataset.modalStackLinkPrefetch === "false")
       return;
@@ -936,10 +1356,12 @@ function install(application) {
   }
   application.register("modal-stack", ModalStackController);
   application.register("modal-stack-link", ModalStackLinkController);
+  application.register("modal-stack-back-link", ModalStackBackLinkController);
   return application;
 }
 export {
   install,
   ModalStackLinkController,
-  ModalStackController
+  ModalStackController,
+  ModalStackBackLinkController
 };
