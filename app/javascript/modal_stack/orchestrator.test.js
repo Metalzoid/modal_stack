@@ -208,8 +208,8 @@ describe("closeAll", () => {
     expect(orchestrator.depth).toBe(0);
     const types = runtime._calls.map((c) => c.type);
     expect(types).toEqual([
-      "unmountAllLayers",
       "closeDialog",
+      "unmountAllLayers",
       "unlockScroll",
       "historyBack",
       "clearSnapshot",
@@ -465,8 +465,8 @@ describe("onPopstate", () => {
 
     const types = runtime._calls.map((c) => c.type);
     expect(types).toEqual([
-      "unmountAllLayers",
       "closeDialog",
+      "unmountAllLayers",
       "unlockScroll",
       "clearSnapshot",
     ]);

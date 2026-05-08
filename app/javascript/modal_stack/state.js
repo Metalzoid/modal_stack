@@ -195,15 +195,23 @@ export function pop(state) {
 
   const newLayers = Object.freeze(state.layers.slice(0, -1));
   const newTop = newLayers[newLayers.length - 1] ?? null;
-  const commands = [
-    { type: "unmountTopLayer" },
-    { type: "historyBack", n: 1 },
-  ];
+  const commands = [];
   if (newTop) {
+    commands.push({ type: "unmountTopLayer" });
+    commands.push({ type: "historyBack", n: 1 });
     commands.push({ type: "inertLayer", layerId: newTop.id, value: false });
     commands.push({ type: "persistSnapshot" });
   } else {
+    // closeDialog first so the dialog's exit transition (opacity +
+    // backdrop background + display/overlay allow-discrete) starts
+    // immediately and runs in parallel with the layer's [data-leaving]
+    // transition. Without this order, the orchestrator awaits 220ms
+    // on unmountTopLayer before closing the dialog, then the backdrop
+    // fade kicks in for *another* 220ms — visually the backdrop fades
+    // after the modal is gone.
     commands.push({ type: "closeDialog" });
+    commands.push({ type: "unmountTopLayer" });
+    commands.push({ type: "historyBack", n: 1 });
     commands.push({ type: "unlockScroll" });
     commands.push({ type: "clearSnapshot" });
   }
@@ -276,9 +284,11 @@ export function closeAll(state) {
   const n = state.layers.length;
   return {
     state: { ...state, layers: Object.freeze([]) },
+    // closeDialog first so the dialog's exit transition runs in
+    // parallel with the layers' [data-leaving] transitions.
     commands: [
-      { type: "unmountAllLayers" },
       { type: "closeDialog" },
+      { type: "unmountAllLayers" },
       { type: "unlockScroll" },
       { type: "historyBack", n },
       { type: "clearSnapshot" },
@@ -301,9 +311,10 @@ export function handlePopstate(state, { historyState, locationHref }) {
     if (state.layers.length === 0) return { state, commands: [] };
     return {
       state: { ...state, layers: Object.freeze([]) },
+      // closeDialog first — see closeAll() for rationale.
       commands: [
-        { type: "unmountAllLayers" },
         { type: "closeDialog" },
+        { type: "unmountAllLayers" },
         { type: "unlockScroll" },
         { type: "clearSnapshot" },
       ],
@@ -318,6 +329,10 @@ export function handlePopstate(state, { historyState, locationHref }) {
     const newLayers = Object.freeze(state.layers.slice(0, targetDepth));
     const newTop = newLayers[newLayers.length - 1] ?? null;
     const commands = [];
+    // When popping back to the root via popstate, fire closeDialog
+    // first so the dialog's exit transition runs alongside the
+    // sequential unmountTopLayer cascade.
+    if (!newTop) commands.push({ type: "closeDialog" });
     for (let i = 0; i < currentDepth - targetDepth; i++) {
       commands.push({ type: "unmountTopLayer" });
     }
@@ -325,7 +340,6 @@ export function handlePopstate(state, { historyState, locationHref }) {
       commands.push({ type: "inertLayer", layerId: newTop.id, value: false });
       commands.push({ type: "persistSnapshot" });
     } else {
-      commands.push({ type: "closeDialog" });
       commands.push({ type: "unlockScroll" });
       commands.push({ type: "clearSnapshot" });
     }

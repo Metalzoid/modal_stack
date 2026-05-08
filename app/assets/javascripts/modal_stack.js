@@ -126,15 +126,16 @@ function pop(state) {
     return { state, commands: [] };
   const newLayers = Object.freeze(state.layers.slice(0, -1));
   const newTop = newLayers[newLayers.length - 1] ?? null;
-  const commands = [
-    { type: "unmountTopLayer" },
-    { type: "historyBack", n: 1 }
-  ];
+  const commands = [];
   if (newTop) {
+    commands.push({ type: "unmountTopLayer" });
+    commands.push({ type: "historyBack", n: 1 });
     commands.push({ type: "inertLayer", layerId: newTop.id, value: false });
     commands.push({ type: "persistSnapshot" });
   } else {
     commands.push({ type: "closeDialog" });
+    commands.push({ type: "unmountTopLayer" });
+    commands.push({ type: "historyBack", n: 1 });
     commands.push({ type: "unlockScroll" });
     commands.push({ type: "clearSnapshot" });
   }
@@ -192,8 +193,8 @@ function closeAll(state) {
   return {
     state: { ...state, layers: Object.freeze([]) },
     commands: [
-      { type: "unmountAllLayers" },
       { type: "closeDialog" },
+      { type: "unmountAllLayers" },
       { type: "unlockScroll" },
       { type: "historyBack", n },
       { type: "clearSnapshot" }
@@ -208,8 +209,8 @@ function handlePopstate(state, { historyState, locationHref }) {
     return {
       state: { ...state, layers: Object.freeze([]) },
       commands: [
-        { type: "unmountAllLayers" },
         { type: "closeDialog" },
+        { type: "unmountAllLayers" },
         { type: "unlockScroll" },
         { type: "clearSnapshot" }
       ]
@@ -222,6 +223,8 @@ function handlePopstate(state, { historyState, locationHref }) {
     const newLayers = Object.freeze(state.layers.slice(0, targetDepth));
     const newTop = newLayers[newLayers.length - 1] ?? null;
     const commands = [];
+    if (!newTop)
+      commands.push({ type: "closeDialog" });
     for (let i = 0;i < currentDepth - targetDepth; i++) {
       commands.push({ type: "unmountTopLayer" });
     }
@@ -229,7 +232,6 @@ function handlePopstate(state, { historyState, locationHref }) {
       commands.push({ type: "inertLayer", layerId: newTop.id, value: false });
       commands.push({ type: "persistSnapshot" });
     } else {
-      commands.push({ type: "closeDialog" });
       commands.push({ type: "unlockScroll" });
       commands.push({ type: "clearSnapshot" });
     }
