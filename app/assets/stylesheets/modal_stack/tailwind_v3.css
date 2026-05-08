@@ -1,11 +1,14 @@
 /*
- * modal_stack — Tailwind preset
+ * modal_stack — Tailwind v3 preset
+ *
+ * Tailwind v3 doesn't expose its design tokens as native CSS variables,
+ * so this preset ships static values aligned with the Tailwind defaults
+ * (slate text, white surface, rounded-2xl-ish radius, container sizes).
+ * Override the `--modal-stack-*` tokens on `:root` to retheme without
+ * touching the gem.
  *
  * Structural CSS for the <dialog id="modal-stack-root"> + layered
  * `[data-modal-stack-target="layer"]` setup driven by the JS runtime.
- * Visual tokens are exposed as CSS custom properties on `:root` so they
- * can be overridden globally, per scope, or via Tailwind's
- * `:root { --modal-stack-* }` declaration.
  *
  * Variants:    [data-variant="modal" | "drawer" | "bottom_sheet" | "confirmation"]
  * Drawer side: [data-side="left" | "right" | "top" | "bottom"]
@@ -27,7 +30,13 @@
   --modal-stack-fg: #0f172a;
   --modal-stack-shadow: 0 30px 60px -20px rgba(15, 23, 42, 0.35);
   --modal-stack-backdrop: rgba(15, 23, 42, 0.55);
-  --modal-stack-backdrop-blur: 2px;
+  /* `none` by default — `backdrop-filter: blur()` even at radius 0
+   * still allocates a filter layer on the compositor, and animating
+   * a non-zero radius costs ~190ms/frame on Hi-DPI displays. Opt in
+   * with `:root { --modal-stack-backdrop-filter: blur(8px); }` —
+   * the filter is applied statically when the dialog opens (no
+   * per-frame compositor cost). */
+  --modal-stack-backdrop-filter: none;
   --modal-stack-panel-padding: 24px;
   --modal-stack-size-sm: 24rem;   /* 384px */
   --modal-stack-size-md: 34rem;   /* 544px */
@@ -79,23 +88,23 @@ body[data-modal-stack-locked] {
 
 #modal-stack-root::backdrop {
   background: rgba(15, 23, 42, 0);
-  backdrop-filter: blur(0);
   transition:
     background var(--modal-stack-duration) var(--modal-stack-ease),
-    backdrop-filter var(--modal-stack-duration) var(--modal-stack-ease),
     overlay var(--modal-stack-duration) var(--modal-stack-ease) allow-discrete,
     display var(--modal-stack-duration) var(--modal-stack-ease) allow-discrete;
 }
 
 #modal-stack-root[open]::backdrop {
   background: var(--modal-stack-backdrop);
-  backdrop-filter: blur(var(--modal-stack-backdrop-blur));
+  /* Static (not in the transition list above). Default is `none` so
+   * Chrome skips the filter pass entirely. Override --modal-stack-
+   * backdrop-filter to opt in. */
+  backdrop-filter: var(--modal-stack-backdrop-filter);
 }
 
 @starting-style {
   #modal-stack-root[open]::backdrop {
     background: rgba(15, 23, 42, 0);
-    backdrop-filter: blur(0);
   }
 }
 
@@ -117,8 +126,7 @@ body[data-modal-stack-locked] {
   transform: translate(-50%, -50%);
   transition:
     transform var(--modal-stack-duration) var(--modal-stack-ease),
-    opacity var(--modal-stack-duration) var(--modal-stack-ease),
-    filter var(--modal-stack-duration) var(--modal-stack-ease);
+    opacity var(--modal-stack-duration) var(--modal-stack-ease);
 }
 
 @starting-style {
@@ -136,7 +144,6 @@ body[data-modal-stack-locked] {
 
 [data-modal-stack-target="layer"][inert] {
   opacity: 0.5;
-  filter: blur(0.5px);
 }
 
 /* --- Sizes via [data-modal-stack-size] ----------------------------- */

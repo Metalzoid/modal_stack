@@ -5,7 +5,7 @@ module ModalStack
     extend ActiveSupport::Concern
 
     included do
-      helper_method :modal_stack_request?
+      helper_method :modal_stack_request?, :modal_stack_config
     end
 
     class_methods do
@@ -37,6 +37,13 @@ module ModalStack
           conditions
         )
       end
+    end
+
+    # Request-scoped accessor for `ModalStack.configuration`. Memoized so
+    # helpers that read several config values per render hit the global
+    # singleton once instead of N times.
+    def modal_stack_config
+      @modal_stack_config ||= ModalStack.configuration
     end
 
     # True when the current request was issued by the modal_stack JS runtime

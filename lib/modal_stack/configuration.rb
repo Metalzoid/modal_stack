@@ -11,7 +11,11 @@ module ModalStack
   #   end
   #
   class Configuration
-    CSS_PROVIDERS = %i[tailwind bootstrap vanilla none].freeze
+    CSS_PROVIDERS = %i[tailwind_v3 tailwind_v4 bootstrap vanilla none].freeze
+    # Aliases accepted on input, normalized to a canonical CSS_PROVIDERS value.
+    # `:tailwind` predates the v3/v4 split — keep it working, map to v3 (no change
+    # in rendered CSS for existing apps).
+    CSS_PROVIDER_ALIASES = { tailwind: :tailwind_v3 }.freeze
     ASSETS_MODES = %i[importmap jsbundling sprockets auto].freeze
     VARIANTS = %i[modal drawer bottom_sheet confirmation].freeze
     SIZES = %i[sm md lg xl].freeze
@@ -36,7 +40,7 @@ module ModalStack
                 :max_depth_strategy
 
     def initialize
-      @css_provider = :tailwind
+      @css_provider = :tailwind_v3
       @assets_mode = :auto
       @default_variant = :modal
       @default_size = :md
@@ -56,6 +60,7 @@ module ModalStack
 
     def css_provider=(value)
       value = value.to_sym
+      value = CSS_PROVIDER_ALIASES.fetch(value, value)
       raise ArgumentError, "css_provider must be one of #{CSS_PROVIDERS.inspect}, got #{value.inspect}" unless CSS_PROVIDERS.include?(value)
 
       @css_provider = value

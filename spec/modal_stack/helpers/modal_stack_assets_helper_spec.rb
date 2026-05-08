@@ -17,17 +17,24 @@ RSpec.describe ModalStack::Helpers::ModalStackAssetsHelper do
 
   describe "#modal_stack_stylesheet_link_tag" do
     it "emits a link to the configured provider" do
-      ModalStack.configuration.css_provider = :tailwind
+      ModalStack.configuration.css_provider = :tailwind_v4
       out = view.modal_stack_stylesheet_link_tag
-      expect(out).to match(%r{href="[^"]*modal_stack/tailwind[^"]*\.css"})
+      expect(out).to match(%r{href="[^"]*modal_stack/tailwind_v4[^"]*\.css"})
       expect(out).to include('rel="stylesheet"')
     end
 
     it "switches when the provider changes" do
+      ModalStack.configuration.css_provider = :tailwind_v3
+      expect(view.modal_stack_stylesheet_link_tag).to match(%r{modal_stack/tailwind_v3[^"]*\.css})
       ModalStack.configuration.css_provider = :bootstrap
       expect(view.modal_stack_stylesheet_link_tag).to match(%r{modal_stack/bootstrap[^"]*\.css})
       ModalStack.configuration.css_provider = :vanilla
       expect(view.modal_stack_stylesheet_link_tag).to match(%r{modal_stack/vanilla[^"]*\.css})
+    end
+
+    it "resolves the legacy :tailwind alias to the v3 stylesheet" do
+      ModalStack.configuration.css_provider = :tailwind
+      expect(view.modal_stack_stylesheet_link_tag).to match(%r{modal_stack/tailwind_v3[^"]*\.css})
     end
 
     it "renders nothing when provider is :none" do

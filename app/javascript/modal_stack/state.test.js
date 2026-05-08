@@ -306,10 +306,12 @@ describe("pop", () => {
     const first = pushed(freshStack()).state;
     const { state, commands } = pop(first);
     expect(state.layers).toEqual([]);
+    // closeDialog comes first so its exit transition runs in parallel
+    // with the layer's [data-leaving] transition.
     expect(commands).toEqual([
+      { type: "closeDialog" },
       { type: "unmountTopLayer" },
       { type: "historyBack", n: 1 },
-      { type: "closeDialog" },
       { type: "unlockScroll" },
       { type: "clearSnapshot" },
     ]);
@@ -423,8 +425,8 @@ describe("closeAll", () => {
     const { state, commands } = closeAll(s);
     expect(state.layers).toEqual([]);
     expect(commands).toEqual([
-      { type: "unmountAllLayers" },
       { type: "closeDialog" },
+      { type: "unmountAllLayers" },
       { type: "unlockScroll" },
       { type: "historyBack", n: 3 },
       { type: "clearSnapshot" },
@@ -447,8 +449,8 @@ describe("handlePopstate", () => {
     });
     expect(state.layers).toEqual([]);
     expect(commands).toEqual([
-      { type: "unmountAllLayers" },
       { type: "closeDialog" },
+      { type: "unmountAllLayers" },
       { type: "unlockScroll" },
       { type: "clearSnapshot" },
     ]);
@@ -485,9 +487,9 @@ describe("handlePopstate", () => {
     });
     expect(state.layers).toEqual([]);
     expect(commands).toEqual([
-      { type: "unmountTopLayer" },
-      { type: "unmountTopLayer" },
       { type: "closeDialog" },
+      { type: "unmountTopLayer" },
+      { type: "unmountTopLayer" },
       { type: "unlockScroll" },
       { type: "clearSnapshot" },
     ]);

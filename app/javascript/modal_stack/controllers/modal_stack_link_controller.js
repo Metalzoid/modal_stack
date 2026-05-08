@@ -1,14 +1,21 @@
 import { Controller } from "@hotwired/stimulus";
 
 export class ModalStackLinkController extends Controller {
-  open(event) {
-    const stack = document.querySelector('[data-controller~="modal-stack"]');
-    if (!stack) return;
+  connect() {
+    if (this.element.dataset.modalStackLinkPrefetch === "false") return;
+    this._onIntent = () => this.#warm();
+    this.element.addEventListener("pointerenter", this._onIntent);
+    this.element.addEventListener("focus", this._onIntent);
+  }
 
-    const controller = this.application.getControllerForElementAndIdentifier(
-      stack,
-      "modal-stack",
-    );
+  disconnect() {
+    if (!this._onIntent) return;
+    this.element.removeEventListener("pointerenter", this._onIntent);
+    this.element.removeEventListener("focus", this._onIntent);
+  }
+
+  open(event) {
+    const controller = this.#stackController();
     if (!controller) return;
 
     event.preventDefault();
@@ -23,6 +30,21 @@ export class ModalStackLinkController extends Controller {
       height: ds.modalStackLinkHeight,
       dismissible: ds.modalStackLinkDismissible !== "false",
     });
+  }
+
+  #warm() {
+    const controller = this.#stackController();
+    if (!controller || typeof controller.prefetch !== "function") return;
+    controller.prefetch(this.element.href);
+  }
+
+  #stackController() {
+    const stack = document.querySelector('[data-controller~="modal-stack"]');
+    if (!stack) return null;
+    return this.application.getControllerForElementAndIdentifier(
+      stack,
+      "modal-stack",
+    );
   }
 }
 

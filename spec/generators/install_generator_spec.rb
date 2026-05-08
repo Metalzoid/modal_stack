@@ -148,6 +148,18 @@ RSpec.describe ModalStack::Generators::InstallGenerator do
       content = read_file("config/initializers/modal_stack.rb")
       expect(content).to include("config.css_provider = :none")
     end
+
+    it "defaults to css_provider :tailwind_v4 in the initializer" do
+      run_generator
+      content = read_file("config/initializers/modal_stack.rb")
+      expect(content).to include("config.css_provider = :tailwind_v4")
+    end
+
+    it "writes the canonical :tailwind_v3 even when --css-provider=tailwind is passed" do
+      run_generator(["--css-provider", "tailwind"])
+      content = read_file("config/initializers/modal_stack.rb")
+      expect(content).to include("config.css_provider = :tailwind_v3")
+    end
   end
 
   context "with sprockets" do
@@ -160,7 +172,13 @@ RSpec.describe ModalStack::Generators::InstallGenerator do
       run_generator
       content = read_file("app/assets/config/manifest.js")
       expect(content).to include("//= link modal_stack.js")
-      expect(content).to include("//= link modal_stack/tailwind.css")
+      expect(content).to include("//= link modal_stack/tailwind_v4.css")
+    end
+
+    it "normalizes the legacy --css-provider=tailwind alias to tailwind_v3" do
+      run_generator(["--mode", "sprockets", "--css-provider", "tailwind"])
+      content = read_file("app/assets/config/manifest.js")
+      expect(content).to include("//= link modal_stack/tailwind_v3.css")
     end
 
     it "appends the right css link based on --css-provider" do

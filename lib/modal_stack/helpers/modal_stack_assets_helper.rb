@@ -11,7 +11,7 @@ module ModalStack
       # Returns an empty SafeBuffer when `config.css_provider = :none`,
       # so apps can call this unconditionally.
       def modal_stack_stylesheet_link_tag(**)
-        provider = ModalStack.configuration.css_provider
+        provider = _modal_stack_config.css_provider
         return ActiveSupport::SafeBuffer.new if provider == :none
 
         stylesheet_link_tag("modal_stack/#{provider}", **)
@@ -23,7 +23,7 @@ module ModalStack
       #   <%= modal_stack_dialog_tag %>
       #
       def modal_stack_dialog_tag(**html_options)
-        config = ModalStack.configuration
+        config = _modal_stack_config
         attrs = html_options.dup
         attrs[:id] ||= config.dialog_id
         attrs[:data] = build_dialog_data(attrs[:data], config)
@@ -47,6 +47,18 @@ module ModalStack
       # is handled by the host app's bundler / importmap.
       def modal_stack_javascript_tag(**)
         ActiveSupport::SafeBuffer.new
+      end
+
+      private
+
+      # Prefers the request-scoped accessor injected by ControllerExtensions
+      # so we hit `ModalStack.configuration` once per request, not per call.
+      # Falls back to the global singleton for non-controller render contexts
+      # (mailers, ActionCable, isolated view tests).
+      def _modal_stack_config
+        return modal_stack_config if respond_to?(:modal_stack_config, true)
+
+        ModalStack.configuration
       end
     end
   end

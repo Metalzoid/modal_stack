@@ -179,6 +179,74 @@ describe("scroll lock", () => {
   });
 });
 
+describe("leave timeout from CSS variable", () => {
+  function rtWithDuration(raw) {
+    const ownerDocument = {};
+    const dialog = {
+      ownerDocument,
+      querySelectorAll: () => [],
+    };
+    const documentRef = { documentElement: {}, body: {} };
+    const original = globalThis.getComputedStyle;
+    globalThis.getComputedStyle = () => ({
+      getPropertyValue: (name) =>
+        name === "--modal-stack-duration" ? raw : "",
+    });
+    const rt = new BrowserRuntime(
+      noopRuntimeArgs({ dialog, documentRef }),
+    );
+    return { rt, restore: () => (globalThis.getComputedStyle = original) };
+  }
+
+  async function trigger(rt) {
+    // unmountAllLayers reads the timeout once (querying [] layers, so it
+    // resolves immediately) and stashes the result on _cachedLeaveTimeoutMs.
+    await rt.unmountAllLayers();
+  }
+
+  test("derives 1.5x of the CSS variable, with a 300ms floor", async () => {
+    const { rt, restore } = rtWithDuration("220ms");
+    try {
+      await trigger(rt);
+      // 220ms × 1.5 = 330ms
+      expect(rt._cachedLeaveTimeoutMs).toBe(330);
+    } finally {
+      restore();
+    }
+  });
+
+  test("floors the timeout at 300ms for very fast transitions", async () => {
+    const { rt, restore } = rtWithDuration("100ms");
+    try {
+      await trigger(rt);
+      expect(rt._cachedLeaveTimeoutMs).toBe(300);
+    } finally {
+      restore();
+    }
+  });
+
+  test("falls back to 600 when the variable is empty", async () => {
+    const { rt, restore } = rtWithDuration("");
+    try {
+      await trigger(rt);
+      expect(rt._cachedLeaveTimeoutMs).toBe(600);
+    } finally {
+      restore();
+    }
+  });
+
+  test("supports seconds units (e.g. 0.4s)", async () => {
+    const { rt, restore } = rtWithDuration("0.4s");
+    try {
+      await trigger(rt);
+      // 400ms × 1.5 = 600ms
+      expect(rt._cachedLeaveTimeoutMs).toBe(600);
+    } finally {
+      restore();
+    }
+  });
+});
+
 describe("fetch headers", () => {
   test("sends Accept and X-Modal-Stack-Request headers", async () => {
     let captured = null;

@@ -2,7 +2,8 @@
 // Propshaft ignores this file.
 //= link application.js
 //= link modal_stack.js
-//= link modal_stack/tailwind.css
+//= link modal_stack/tailwind_v3.css
+//= link modal_stack/tailwind_v4.css
 //= link modal_stack/bootstrap.css
 //= link modal_stack/vanilla.css
 //= link turbo.min.js

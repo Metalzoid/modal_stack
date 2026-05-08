@@ -18,7 +18,9 @@
   --modal-stack-fg: #1a1a1a;
   --modal-stack-shadow: 0 24px 60px -16px rgba(0, 0, 0, 0.32);
   --modal-stack-backdrop: rgba(0, 0, 0, 0.5);
-  --modal-stack-backdrop-blur: 0;
+  /* Default `none` so Chrome skips the filter pass. Opt in with
+   * `:root { --modal-stack-backdrop-filter: blur(8px); }`. */
+  --modal-stack-backdrop-filter: none;
   --modal-stack-panel-padding: 20px;
   --modal-stack-size-sm: 320px;
   --modal-stack-size-md: 480px;
@@ -60,23 +62,22 @@ body[data-modal-stack-locked] {
 
 #modal-stack-root::backdrop {
   background: rgba(0, 0, 0, 0);
-  backdrop-filter: blur(0);
   transition:
     background var(--modal-stack-duration) var(--modal-stack-ease),
-    backdrop-filter var(--modal-stack-duration) var(--modal-stack-ease),
     overlay var(--modal-stack-duration) var(--modal-stack-ease) allow-discrete,
     display var(--modal-stack-duration) var(--modal-stack-ease) allow-discrete;
 }
 
 #modal-stack-root[open]::backdrop {
   background: var(--modal-stack-backdrop);
-  backdrop-filter: blur(var(--modal-stack-backdrop-blur));
+  /* Static. Default is `none` (no filter pass). Opt in with
+   * --modal-stack-backdrop-filter on :root. */
+  backdrop-filter: var(--modal-stack-backdrop-filter);
 }
 
 @starting-style {
   #modal-stack-root[open]::backdrop {
     background: rgba(0, 0, 0, 0);
-    backdrop-filter: blur(0);
   }
 }
 
@@ -96,8 +97,7 @@ body[data-modal-stack-locked] {
   transform: translate(-50%, -50%);
   transition:
     transform var(--modal-stack-duration) var(--modal-stack-ease),
-    opacity var(--modal-stack-duration) var(--modal-stack-ease),
-    filter var(--modal-stack-duration) var(--modal-stack-ease);
+    opacity var(--modal-stack-duration) var(--modal-stack-ease);
 }
 
 @starting-style {
@@ -115,7 +115,6 @@ body[data-modal-stack-locked] {
 
 [data-modal-stack-target="layer"][inert] {
   opacity: 0.5;
-  filter: blur(0.5px);
 }
 
 [data-modal-stack-target="layer"][data-modal-stack-size="sm"] { width: var(--modal-stack-size-sm); }

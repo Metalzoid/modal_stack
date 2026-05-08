@@ -9,11 +9,16 @@ module ModalStack
       source_root File.expand_path("templates", __dir__)
 
       ASSETS_MODES = ModalStack::Configuration::ASSETS_MODES.map(&:to_s).freeze
-      CSS_PROVIDERS = ModalStack::Configuration::CSS_PROVIDERS.map(&:to_s).freeze
+      # The CLI accepts the canonical providers plus the legacy `tailwind`
+      # alias (normalized to `tailwind_v3` by Configuration). New installs
+      # default to `tailwind_v4` — Tailwind v4 is the modern default and
+      # the preset's fallbacks make it safe even without v4 installed.
+      CSS_PROVIDERS = (ModalStack::Configuration::CSS_PROVIDERS +
+                       ModalStack::Configuration::CSS_PROVIDER_ALIASES.keys).map(&:to_s).freeze
 
       class_option :mode, type: :string, default: "auto", enum: ASSETS_MODES,
                           desc: "JS asset strategy"
-      class_option :css_provider, type: :string, default: "tailwind",
+      class_option :css_provider, type: :string, default: "tailwind_v4",
                                   enum: CSS_PROVIDERS,
                                   desc: "CSS preset bundled with the install"
       class_option :skip_layout, type: :boolean, default: false,
@@ -55,7 +60,7 @@ module ModalStack
           modal_stack installed.
 
           Mode:          #{resolved_mode}
-          CSS provider:  #{options[:css_provider]}
+          CSS provider:  #{resolved_css_provider}
 
           Next steps:
             1. Confirm config/initializers/modal_stack.rb matches your needs.
@@ -80,6 +85,15 @@ module ModalStack
 
       def resolved_mode
         @resolved_mode ||= detect_mode
+      end
+
+      # Normalize the legacy `tailwind` alias to the canonical `tailwind_v3`
+      # string so the initializer file and sprockets manifest line both
+      # reference a stylesheet that actually exists in the gem.
+      def resolved_css_provider
+        provider = options[:css_provider].to_s
+        aliased = ModalStack::Configuration::CSS_PROVIDER_ALIASES[provider.to_sym]
+        aliased ? aliased.to_s : provider
       end
 
       def detect_mode
@@ -146,7 +160,7 @@ module ModalStack
         manifest = "app/assets/config/manifest.js"
         if file_exists?(manifest)
           append_unique manifest, "//= link modal_stack.js"
-          append_unique manifest, "//= link modal_stack/#{options[:css_provider]}.css" unless options[:css_provider] == "none"
+          append_unique manifest, "//= link modal_stack/#{resolved_css_provider}.css" unless resolved_css_provider == "none"
         else
           say_status :warn, "#{manifest} not found; add `//= link modal_stack.js` manually", :yellow
         end
