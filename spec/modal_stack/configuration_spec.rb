@@ -6,8 +6,8 @@ RSpec.describe ModalStack::Configuration do
   subject(:config) { described_class.new }
 
   describe "defaults" do
-    it "starts with the tailwind preset" do
-      expect(config.css_provider).to eq(:tailwind)
+    it "starts with the tailwind v3 preset" do
+      expect(config.css_provider).to eq(:tailwind_v3)
     end
 
     it "auto-detects the assets mode" do
@@ -43,6 +43,18 @@ RSpec.describe ModalStack::Configuration do
     it "accepts a string and coerces to symbol" do
       config.css_provider = "bootstrap"
       expect(config.css_provider).to eq(:bootstrap)
+    end
+
+    it "accepts both tailwind_v3 and tailwind_v4" do
+      config.css_provider = :tailwind_v3
+      expect(config.css_provider).to eq(:tailwind_v3)
+      config.css_provider = :tailwind_v4
+      expect(config.css_provider).to eq(:tailwind_v4)
+    end
+
+    it "normalizes the legacy :tailwind alias to :tailwind_v3" do
+      config.css_provider = :tailwind
+      expect(config.css_provider).to eq(:tailwind_v3)
     end
 
     it "rejects unknown assets_mode" do
@@ -116,7 +128,7 @@ RSpec.describe ModalStack::Configuration do
     it "is reset by reset_configuration!" do
       ModalStack.configuration.css_provider = :bootstrap
       ModalStack.reset_configuration!
-      expect(ModalStack.configuration.css_provider).to eq(:tailwind)
+      expect(ModalStack.configuration.css_provider).to eq(:tailwind_v3)
     end
   end
 

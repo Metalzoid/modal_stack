@@ -1,11 +1,14 @@
 /*
- * modal_stack — Tailwind preset
+ * modal_stack — Tailwind v3 preset
+ *
+ * Tailwind v3 doesn't expose its design tokens as native CSS variables,
+ * so this preset ships static values aligned with the Tailwind defaults
+ * (slate text, white surface, rounded-2xl-ish radius, container sizes).
+ * Override the `--modal-stack-*` tokens on `:root` to retheme without
+ * touching the gem.
  *
  * Structural CSS for the <dialog id="modal-stack-root"> + layered
  * `[data-modal-stack-target="layer"]` setup driven by the JS runtime.
- * Visual tokens are exposed as CSS custom properties on `:root` so they
- * can be overridden globally, per scope, or via Tailwind's
- * `:root { --modal-stack-* }` declaration.
  *
  * Variants:    [data-variant="modal" | "drawer" | "bottom_sheet" | "confirmation"]
  * Drawer side: [data-side="left" | "right" | "top" | "bottom"]

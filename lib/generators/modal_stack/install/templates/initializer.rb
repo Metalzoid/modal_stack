@@ -11,11 +11,18 @@ ModalStack.configure do |config|
   # CSS provider. Determines which stylesheet
   # `modal_stack_stylesheet_link_tag` resolves to.
   #
-  #   :tailwind   — Tailwind-aligned tokens (default)
-  #   :bootstrap  — picks up Bootstrap 5 CSS variables
-  #   :vanilla    — neutral defaults, framework-free
-  #   :none       — emit no <link>; provide your own CSS
-  config.css_provider = :<%= options[:css_provider] %>
+  #   :tailwind_v4 — Chains on Tailwind v4 @theme tokens (--color-*,
+  #                  --radius-*, --shadow-*, --container-*). Default for
+  #                  new installs. Falls back to Tailwind defaults when
+  #                  @theme isn't redefined, so it's safe even without v4.
+  #   :tailwind_v3 — Static values aligned with Tailwind v3 defaults
+  #                  (Tailwind v3 doesn't expose tokens as CSS variables).
+  #                  `:tailwind` is accepted as an alias for backwards
+  #                  compatibility.
+  #   :bootstrap   — Picks up Bootstrap 5 CSS variables.
+  #   :vanilla     — Neutral defaults, framework-free.
+  #   :none        — Emit no <link>; provide your own CSS.
+  config.css_provider = :<%= resolved_css_provider %>
 
   # JS asset strategy used by the install generator and by the
   # `modal_stack_javascript_tag` helper.

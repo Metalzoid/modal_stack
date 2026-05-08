@@ -141,10 +141,11 @@ $ bin/rails g modal_stack:install --mode=sprockets   # legacy apps
 Pick the CSS preset that matches your stack:
 
 ```bash
-$ bin/rails g modal_stack:install --css-provider=tailwind   # default
-$ bin/rails g modal_stack:install --css-provider=bootstrap  # picks up Bootstrap 5 vars
-$ bin/rails g modal_stack:install --css-provider=vanilla    # framework-free
-$ bin/rails g modal_stack:install --css-provider=none       # bring your own CSS
+$ bin/rails g modal_stack:install --css-provider=tailwind_v4 # default — chains on Tailwind v4 @theme tokens
+$ bin/rails g modal_stack:install --css-provider=tailwind_v3 # static values aligned with Tailwind v3
+$ bin/rails g modal_stack:install --css-provider=bootstrap   # picks up Bootstrap 5 vars
+$ bin/rails g modal_stack:install --css-provider=vanilla     # framework-free
+$ bin/rails g modal_stack:install --css-provider=none        # bring your own CSS
 ```
 
 ### What the generator does
@@ -205,7 +206,7 @@ Everything lives in `config/initializers/modal_stack.rb`:
 ```ruby
 ModalStack.configure do |config|
   # ─── Presentation ─────────────────────────────────────────────────
-  config.css_provider     = :tailwind   # :tailwind | :bootstrap | :vanilla | :none
+  config.css_provider     = :tailwind_v4 # :tailwind_v3 | :tailwind_v4 | :bootstrap | :vanilla | :none
   config.default_variant  = :modal      # :modal | :drawer | :bottom_sheet | :confirmation
   config.default_size     = :md         # :sm | :md | :lg | :xl
   config.default_dismissible = true     # ESC + backdrop click close the layer
@@ -421,7 +422,7 @@ ModalStack.reset_configuration!         # test-fixture helper
 
 | Attribute                    | Type    | Default                  | Description |
 | ---------------------------- | ------- | ------------------------ | ----------- |
-| `css_provider`               | Symbol  | `:tailwind`              | One of `:tailwind`, `:bootstrap`, `:vanilla`, `:none`. Determines which stylesheet `modal_stack_stylesheet_link_tag` resolves to. Validated. |
+| `css_provider`               | Symbol  | `:tailwind_v3`           | One of `:tailwind_v3`, `:tailwind_v4`, `:bootstrap`, `:vanilla`, `:none`. Determines which stylesheet `modal_stack_stylesheet_link_tag` resolves to. The legacy `:tailwind` is accepted and normalized to `:tailwind_v3`. New installs default to `:tailwind_v4`. Validated. |
 | `assets_mode`                | Symbol  | `:auto`                  | One of `:importmap`, `:jsbundling`, `:sprockets`, `:auto`. Used by the generator. Validated. |
 | `default_variant`            | Symbol  | `:modal`                 | `:modal`, `:drawer`, `:bottom_sheet`, or `:confirmation`. Validated. |
 | `default_size`               | Symbol  | `:md`                    | `:sm`, `:md`, `:lg`, `:xl`. Validated. |
@@ -446,7 +447,7 @@ Injected into `ActionView::Base` by the engine — available in every view.
 | ------------------------------------------------- | ----------- |
 | `modal_link_to(name, options, html_options)`      | Renders a `link_to` wired to push a layer when clicked. Accepts the modal options (`as:`, `side:`, `size:`, `width:`, `height:`, `dismissible:`) on top of standard `link_to` arguments. Falls back to plain `link_to` for Hotwire Native requests. |
 | `modal_stack_container(size:, variant:, side:, width:, height:, dismissible:, html: {}) { ... }` | Wraps a panel view with the markup the JS runtime expects. Renders a `<div>` carrying the size/variant/dismissible/dimension data attributes. |
-| `modal_stack_stylesheet_link_tag(**options)`      | Emits `<link rel="stylesheet">` for the configured preset (`modal_stack/tailwind.css`, etc.). Returns an empty SafeBuffer when `css_provider = :none`. |
+| `modal_stack_stylesheet_link_tag(**options)`      | Emits `<link rel="stylesheet">` for the configured preset (`modal_stack/tailwind_v4.css`, etc.). Returns an empty SafeBuffer when `css_provider = :none`. |
 | `modal_stack_dialog_tag(**html_options)`          | Emits the singleton `<dialog id="modal-stack-root" data-controller="modal-stack">`. Drop just before `</body>`. |
 | `modal_stack_javascript_tag`                      | Reserved hook for layouts; currently a no-op (JS is loaded via your bundler / importmap). |
 
@@ -595,7 +596,7 @@ $ bin/rails g modal_stack:install [flags]
 | Flag                  | Type    | Default     | Values |
 | --------------------- | ------- | ----------- | ------ |
 | `--mode`              | String  | `auto`      | `auto`, `importmap`, `jsbundling`, `sprockets` |
-| `--css-provider`      | String  | `tailwind`  | `tailwind`, `bootstrap`, `vanilla`, `none` |
+| `--css-provider`      | String  | `tailwind_v4` | `tailwind_v3`, `tailwind_v4`, `bootstrap`, `vanilla`, `none` (legacy `tailwind` accepted, normalized to `tailwind_v3`) |
 | `--skip-layout`       | Boolean | `false`     | When set, doesn't inject the stylesheet/dialog helpers into `application.html.erb` |
 | `--skip-js`           | Boolean | `false`     | When set, skips the Importmap pin / package install / Stimulus install wiring |
 | `--skip-initializer`  | Boolean | `false`     | When set, doesn't generate `config/initializers/modal_stack.rb` |
@@ -614,17 +615,18 @@ safe.
 
 ## 🎨 CSS presets & theming
 
-Three opinionated stylesheets ship with the gem. Pick one with
+Four opinionated stylesheets ship with the gem. Pick one with
 `config.css_provider`:
 
-| Preset       | File                                       | Best for |
-| ------------ | ------------------------------------------ | -------- |
-| `:tailwind`  | `app/assets/stylesheets/modal_stack/tailwind.css`  | Tailwind apps — uses Tailwind tokens by default but overridable |
-| `:bootstrap` | `app/assets/stylesheets/modal_stack/bootstrap.css` | Picks up Bootstrap 5 CSS variables |
-| `:vanilla`   | `app/assets/stylesheets/modal_stack/vanilla.css`   | Framework-free, neutral defaults |
-| `:none`      | —                                          | Bring your own CSS |
+| Preset          | File                                                  | Best for |
+| --------------- | ----------------------------------------------------- | -------- |
+| `:tailwind_v4`  | `app/assets/stylesheets/modal_stack/tailwind_v4.css`  | Tailwind v4 apps — chains on `@theme` tokens (`--color-*`, `--radius-*`, `--shadow-*`, `--container-*`) so the modal picks up your theme automatically. Falls back to Tailwind defaults when `@theme` isn't redefined. |
+| `:tailwind_v3`  | `app/assets/stylesheets/modal_stack/tailwind_v3.css`  | Tailwind v3 apps — static values aligned with Tailwind v3 defaults (v3 doesn't expose tokens as CSS variables). Legacy `:tailwind` is accepted as an alias. |
+| `:bootstrap`    | `app/assets/stylesheets/modal_stack/bootstrap.css`    | Picks up Bootstrap 5 CSS variables |
+| `:vanilla`      | `app/assets/stylesheets/modal_stack/vanilla.css`      | Framework-free, neutral defaults |
+| `:none`         | —                                                     | Bring your own CSS |
 
-All three presets are driven by the same `--modal-stack-*` CSS variables.
+All presets are driven by the same `--modal-stack-*` CSS variables.
 Override on `:root` to retheme without touching the gem:
 
 ```css
@@ -721,7 +723,7 @@ modal_stack/
 ├── app/
 │   ├── assets/
 │   │   ├── javascripts/modal_stack.js  # pre-built importmap bundle (committed)
-│   │   └── stylesheets/modal_stack/    # tailwind / bootstrap / vanilla presets
+│   │   └── stylesheets/modal_stack/    # tailwind_v3 / tailwind_v4 / bootstrap / vanilla presets
 │   ├── javascript/modal_stack/         # ES module sources + bun tests
 │   │   ├── state.js                    # pure reducer (100% coverage)
 │   │   ├── orchestrator.js             # state → command translator
