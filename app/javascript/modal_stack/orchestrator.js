@@ -121,8 +121,13 @@ export class Orchestrator {
     const controller = supportsAbort() ? new AbortController() : null;
     const fetchPromise = this.runtime
       .fetchFragment(url, controller ? { signal: controller.signal } : undefined)
-      .then((fragment) => {
-        const entry = { fragment, ts: Date.now() };
+      .then((result) => {
+        // BrowserRuntime returns { fragment, stale }; older test fakes
+        // (and prior behavior) returned a bare DocumentFragment — accept
+        // both so we don't lock the runtime contract too tightly.
+        const fragment = result?.fragment ?? result;
+        const stale = result?.stale === true;
+        const entry = { fragment, stale, ts: Date.now() };
         this.#fragmentCache.set(url, entry);
         return entry;
       })

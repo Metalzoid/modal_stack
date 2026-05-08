@@ -4,6 +4,7 @@ import {
   FRAGMENT_HEADER,
   SCROLLBAR_WIDTH_VAR,
   SNAPSHOT_KEY,
+  STALE_HEADER,
 } from "./runtime.js";
 
 function fakeStore() {
@@ -267,5 +268,87 @@ describe("fetch headers", () => {
     expect(captured.opts.headers[FRAGMENT_HEADER]).toBe("1");
     expect(captured.opts.headers.Accept).toContain("text/html");
     expect(captured.opts.credentials).toBe("same-origin");
+  });
+
+  test("fetchFragment returns { fragment, stale } from response header", async () => {
+    withFakeDOMParser(async () => {
+      const fetcher = () =>
+        Promise.resolve(
+          new Response("<p>frame</p>", {
+            status: 200,
+            headers: { [STALE_HEADER]: "true" },
+          }),
+        );
+      const documentRef = fakeDocument();
+      const rt = new BrowserRuntime(noopRuntimeArgs({ fetcher, documentRef }));
+      const result = await rt.fetchFragment("/x");
+      expect(result.stale).toBe(true);
+      expect(result.fragment).toBeTruthy();
+    });
+  });
+
+  test("fetchFragment.stale is false when header is missing or '0'", async () => {
+    await withFakeDOMParser(async () => {
+      const cases = [
+        new Response("", { status: 200 }),
+        new Response("", { status: 200, headers: { [STALE_HEADER]: "0" } }),
+        new Response("", { status: 200, headers: { [STALE_HEADER]: "false" } }),
+      ];
+      for (const resp of cases) {
+        const documentRef = fakeDocument();
+        const rt = new BrowserRuntime(
+          noopRuntimeArgs({ fetcher: () => Promise.resolve(resp), documentRef }),
+        );
+        const result = await rt.fetchFragment("/x");
+        expect(result.stale).toBe(false);
+      }
+    });
+  });
+});
+
+function fakeDocument() {
+  return {
+    createDocumentFragment: () => {
+      const children = [];
+      return {
+        childNodes: children,
+        append: (...nodes) => children.push(...nodes),
+        appendChild: (n) => children.push(n),
+      };
+    },
+  };
+}
+
+async function withFakeDOMParser(fn) {
+  const original = globalThis.DOMParser;
+  globalThis.DOMParser = class {
+    parseFromString() {
+      return { body: { childNodes: [] } };
+    }
+  };
+  try {
+    return await fn();
+  } finally {
+    if (original) globalThis.DOMParser = original;
+    else delete globalThis.DOMParser;
+  }
+}
+
+describe("frame cache", () => {
+  test("clearFrameCache removes only entries for the given layerId", () => {
+    const rt = new BrowserRuntime(noopRuntimeArgs());
+    rt._frameCache.set("L1#0", "a");
+    rt._frameCache.set("L1#1", "b");
+    rt._frameCache.set("L2#0", "c");
+    rt._frameCache.set("L11#0", "d"); // verify prefix is anchored on `#`
+    rt.clearFrameCache({ layerId: "L1" });
+    expect([...rt._frameCache.keys()].sort()).toEqual(["L11#0", "L2#0"]);
+  });
+
+  test("clearFrameCache is a no-op for unknown layerId", () => {
+    const rt = new BrowserRuntime(noopRuntimeArgs());
+    rt._frameCache.set("L1#0", "a");
+    rt.clearFrameCache({ layerId: "Lz" });
+    expect([...rt._frameCache.keys()]).toEqual(["L1#0"]);
   });
 });
