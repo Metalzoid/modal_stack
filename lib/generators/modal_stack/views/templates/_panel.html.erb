@@ -1,0 +1,18 @@
+<%# modal_stack panel template — override this file to customise the HTML
+    structure that wraps every modal/drawer/bottom-sheet/confirmation panel.
+    Available locals:
+      content       — SafeBuffer, the yielded view content
+      back_button   — SafeBuffer | nil, pre-rendered back button (nil when back: false)
+      wrapper_attrs — Hash { class:, data:, ...extras } — must stay on the root element
+                      so the JS runtime can read its data attributes
+      size          — Symbol  :sm | :md | :lg | :xl
+      variant       — Symbol  :modal | :drawer | :bottom_sheet | :confirmation
+      dismissible   — Boolean
+      side          — Symbol | nil  :left | :right | :top | :bottom
+      width         — String | nil  CSS value (e.g. "42rem")
+      height        — String | nil  CSS value
+      transition    — Symbol | nil  :slide | :fade | :none %>
+<%= content_tag(:div, wrapper_attrs) do %>
+  <%= back_button %>
+  <%= content %>
+<% end %>

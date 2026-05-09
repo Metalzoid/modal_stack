@@ -31,9 +31,20 @@ module ModalStack
         }.merge(html.except(:class, :data))
 
         body = capture(&)
-        body = safe_join([modal_stack_container_back_button, body]) if back
+        back_html = back ? modal_stack_container_back_button : nil
 
-        content_tag(:div, body, **attrs)
+        render partial: "modal_stack/panel", locals: {
+          content: body,
+          back_button: back_html,
+          wrapper_attrs: attrs,
+          size: size,
+          variant: variant,
+          dismissible: dismissible,
+          side: side,
+          width: width,
+          height: height,
+          transition: transition
+        }
       end
 
       private

@@ -1,0 +1,9 @@
+<%# modal_stack dialog template — override this file to customise the HTML
+    structure of the singleton <dialog> element that acts as the modal root.
+    Available locals:
+      dialog_attrs — Hash { id:, data: { controller: "modal-stack", ... }, ...extras }
+                     Must stay on the <dialog> element — the JS Stimulus controller
+                     and layer injection depend on these attributes.
+    Note: the JS runtime appends panel layers as direct children of <dialog> via
+    appendChild. Static children you add here will be siblings of those layers. %>
+<%= content_tag(:dialog, dialog_attrs) do %><% end %>

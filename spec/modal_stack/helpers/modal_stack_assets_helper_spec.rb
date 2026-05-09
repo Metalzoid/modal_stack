@@ -6,10 +6,11 @@ require "modal_stack/helpers/modal_stack_assets_helper"
 
 RSpec.describe ModalStack::Helpers::ModalStackAssetsHelper do
   let(:view) do
+    engine_views = File.expand_path("../../../app/views", __dir__)
     Class.new(ActionView::Base) do
       include ModalStack::Helpers::ModalStackAssetsHelper
     end.with_empty_template_cache.new(
-      ActionView::LookupContext.new([]),
+      ActionView::LookupContext.new([engine_views]),
       {},
       nil
     )
