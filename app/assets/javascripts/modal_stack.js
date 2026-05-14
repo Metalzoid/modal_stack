@@ -854,6 +854,8 @@ class BrowserRuntime {
     this.#applyFrameDepth(layer, toFrameIndex);
     if (oldFrame)
       oldFrame.remove();
+    if (transition)
+      this.#cleanupFrameTransition(newFrame);
   }
   async unmountFrame({ layerId, fromFrameIndex, toFrameIndex, url, stale, transition }) {
     const layer = this.#findLayer(layerId);
@@ -876,6 +878,8 @@ class BrowserRuntime {
     const oldFrame = this.#findFrame(layer, fromFrameIndex);
     if (oldFrame)
       oldFrame.remove();
+    if (transition)
+      this.#cleanupFrameTransition(newFrame);
   }
   clearFrameCache({ layerId }) {
     const prefix = `${layerId}#`;
@@ -965,6 +969,18 @@ class BrowserRuntime {
         this._frameCache.delete(key);
       }
     }
+  }
+  #cleanupFrameTransition(frameEl) {
+    let done = false;
+    const cleanup = () => {
+      if (done)
+        return;
+      done = true;
+      frameEl.removeAttribute("data-transition");
+      frameEl.removeAttribute("data-direction");
+    };
+    frameEl.addEventListener("transitionend", cleanup, { once: true });
+    setTimeout(cleanup, this.#leaveTimeoutMs());
   }
   #createFrameWrapper({ frameIndex, transition = null, direction = null }) {
     const el = this.document.createElement("div");
@@ -1095,7 +1111,7 @@ function escapeAttr(value) {
   if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
     return CSS.escape(value);
   }
-  return String(value).replace(/["\\]/g, "\\$&");
+  return String(value).replace(/["\\[\]]/g, "\\$&");
 }
 
 // app/javascript/modal_stack/controllers/modal_stack_controller.js

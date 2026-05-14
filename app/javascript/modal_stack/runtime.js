@@ -146,6 +146,10 @@ export class BrowserRuntime {
     // overlapping layout (e.g. position: absolute) to also animate out,
     // which we leave to the host CSS preset.
     if (oldFrame) oldFrame.remove();
+
+    // Remove transition attrs once the animation completes so the :has()
+    // rule that clips overflow doesn't persist indefinitely.
+    if (transition) this.#cleanupFrameTransition(newFrame);
   }
 
   async unmountFrame({ layerId, fromFrameIndex, toFrameIndex, url, stale, transition }) {
@@ -176,6 +180,8 @@ export class BrowserRuntime {
 
     const oldFrame = this.#findFrame(layer, fromFrameIndex);
     if (oldFrame) oldFrame.remove();
+
+    if (transition) this.#cleanupFrameTransition(newFrame);
   }
 
   clearFrameCache({ layerId }) {
@@ -296,6 +302,22 @@ export class BrowserRuntime {
         this._frameCache.delete(key);
       }
     }
+  }
+
+  // Removes [data-transition] and [data-direction] from a frame once its
+  // enter animation ends. This restores overflow-y:auto on the layer (the
+  // :has([data-transition]) rule in the CSS preset keeps overflow:hidden
+  // while the animation runs to clip off-screen slide frames).
+  #cleanupFrameTransition(frameEl) {
+    let done = false;
+    const cleanup = () => {
+      if (done) return;
+      done = true;
+      frameEl.removeAttribute("data-transition");
+      frameEl.removeAttribute("data-direction");
+    };
+    frameEl.addEventListener("transitionend", cleanup, { once: true });
+    setTimeout(cleanup, this.#leaveTimeoutMs());
   }
 
   #createFrameWrapper({ frameIndex, transition = null, direction = null }) {
@@ -433,5 +455,6 @@ function escapeAttr(value) {
   if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
     return CSS.escape(value);
   }
-  return String(value).replace(/["\\]/g, "\\$&");
+  // Fallback: escape chars that break CSS attribute selectors ([attr="val"])
+  return String(value).replace(/["\\[\]]/g, "\\$&");
 }
