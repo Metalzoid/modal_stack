@@ -9,8 +9,8 @@ require "modal_stack/capybara/rspec"
 abort("Rails is running in production mode!") if Rails.env.production?
 
 Capybara.register_driver(:cuprite) do |app|
-  # CI runners boot Chromium cold on the first system spec — default 10s
-  # is flaky, 60s gives headroom without masking real hangs.
+  # CI runners boot Chrome cold on the first system spec — 120s gives
+  # headroom even on slow/loaded runners without masking real hangs.
   # `disable-dev-shm-usage` avoids /dev/shm exhaustion in containers.
   Capybara::Cuprite::Driver.new(
     app,
@@ -21,8 +21,8 @@ Capybara.register_driver(:cuprite) do |app|
       "disable-gpu" => nil
     },
     headless: true,
-    process_timeout: ENV["CI"] ? 60 : 20,
-    timeout: 10
+    process_timeout: 120,
+    timeout: 15
   )
 end
 Capybara.javascript_driver = :cuprite
