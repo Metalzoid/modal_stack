@@ -10,13 +10,13 @@ RSpec.describe "Modal path wizard", type: :system, js: true do
     within_modal_frame { expect(page).to have_css("h2#path-step", text: "Path step A") }
 
     within_modal_frame { click_button "To B" }
-    expect(page).to have_current_path("/path_wizard/step_b")
     expect(page).to have_modal_frames(2)
+    expect(page).to have_current_path("/path_wizard/step_b")
     within_modal_frame { expect(page).to have_css("h2#path-step", text: "Path step B") }
 
     within_modal_frame { click_button "To C" }
-    expect(page).to have_current_path("/path_wizard/step_c")
     expect(page).to have_modal_frames(3)
+    expect(page).to have_current_path("/path_wizard/step_c")
     within_modal_frame { expect(page).to have_css("h2#path-step", text: "Path step C") }
 
     within_modal_frame { click_button "Back to B", id: "back-to-b" }
@@ -28,10 +28,11 @@ RSpec.describe "Modal path wizard", type: :system, js: true do
     visit "/"
     click_link "Path wizard", id: "open-path-wizard"
     within_modal_frame { click_button "To B" }
+    expect(page).to have_modal_frames(2)
     expect(page).to have_current_path("/path_wizard/step_b")
     within_modal_frame { click_button "To C" }
-    expect(page).to have_current_path("/path_wizard/step_c")
     expect(page).to have_modal_frames(3)
+    expect(page).to have_current_path("/path_wizard/step_c")
 
     within_modal_frame { click_button "All the way back", id: "back-all-the-way" }
     expect(page).to have_modal_frames(1)
@@ -42,10 +43,11 @@ RSpec.describe "Modal path wizard", type: :system, js: true do
     visit "/"
     click_link "Path wizard", id: "open-path-wizard"
     within_modal_frame { click_button "To B" }
+    expect(page).to have_modal_frames(2)
     expect(page).to have_current_path("/path_wizard/step_b")
     within_modal_frame { click_button "To C" }
-    expect(page).to have_current_path("/path_wizard/step_c")
     expect(page).to have_modal_frames(3)
+    expect(page).to have_current_path("/path_wizard/step_c")
 
     page.go_back
     expect(page).to have_modal_frames(2)
@@ -64,10 +66,11 @@ RSpec.describe "Modal path wizard", type: :system, js: true do
     visit "/"
     click_link "Path wizard", id: "open-path-wizard"
     within_modal_frame { click_button "To B" }
+    expect(page).to have_modal_frames(2)
     expect(page).to have_current_path("/path_wizard/step_b")
     within_modal_frame { click_button "To C" }
-    expect(page).to have_current_path("/path_wizard/step_c")
     expect(page).to have_modal_frames(3)
+    expect(page).to have_current_path("/path_wizard/step_c")
 
     close_modal
     expect(page).to have_no_modal_open
