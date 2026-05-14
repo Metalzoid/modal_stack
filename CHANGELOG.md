@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-05-14
+
 ### Added
 - **Frame transition CSS** fully implemented in all four presets (`tailwind_v4`, `tailwind_v3`, `bootstrap`, `vanilla`): `[data-transition="slide"]` animates the entering frame with `@starting-style translate` (slides in from the right on forward, from the left on back); `[data-transition="fade"]` cross-fades via `opacity`. The layer clips off-screen frames via a `:has([data-transition])` → `overflow: hidden` rule during animation, then the runtime removes `[data-transition]` / `[data-direction]` on `transitionend` (safety fallback: `#leaveTimeoutMs`-based timeout) so `overflow-y: auto` is fully restored afterward.
 - **`top` / `bottom` drawer sides** in the `vanilla` and `bootstrap` presets (parity with `tailwind_v3` / `tailwind_v4`). Both presets gain the `--modal-stack-drawer-height` CSS token (default `22rem`), entry/exit `@starting-style` translate animations, `[data-leaving]` exit rules, and updated header comments.
