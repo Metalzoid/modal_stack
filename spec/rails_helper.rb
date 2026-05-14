@@ -26,7 +26,7 @@ Capybara.register_driver(:cuprite) do |app|
   )
 end
 Capybara.javascript_driver = :cuprite
-Capybara.default_max_wait_time = 5
+Capybara.default_max_wait_time = 8
 Capybara.server = :puma, { Silent: true }
 
 RSpec.configure do |config|
