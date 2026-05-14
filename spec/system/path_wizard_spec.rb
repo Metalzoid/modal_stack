@@ -3,21 +3,19 @@
 require "rails_helper"
 
 RSpec.describe "Modal path wizard", type: :system, js: true do
-  # Navigate to step B and wait for the DOM to confirm the frame is active.
+  # Helpers navigate without pre-scoping to a frame. within_modal_frame is a
+  # point-in-time DOM lookup — if the Turbo response hasn't arrived yet it
+  # captures the wrong node. "To B" / "To C" are unique on the page so a
+  # page-level click followed by a layer-level content assertion is enough.
+
   def wizard_to_b
     click_link "Path wizard", id: "open-path-wizard"
-    within_modal_frame { click_button "To B" }
+    click_button "To B"
     expect(page).to have_modal_frames(2)
   end
 
-  # Navigate to step C and wait for the content to appear at the layer level.
-  # Do NOT pre-scope with within_modal_frame: that helper captures the current
-  # frame at call time — if the Turbo stream response hasn't arrived yet on a
-  # slow runner, it would scope to the step-B frame and wait forever for
-  # "Path step C" inside it.  Querying the layer directly retries until the
-  # new frame's content is in the DOM, regardless of transition timing.
   def wizard_to_c
-    within_modal_frame { click_button "To C" }
+    click_button "To C"
     expect(page).to have_css(
       "#{ModalStack::Capybara::LAYER_SELECTOR} h2#path-step",
       text: "Path step C"
