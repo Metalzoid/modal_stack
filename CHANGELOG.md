@@ -7,10 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Frame transition CSS** fully implemented in all four presets (`tailwind_v4`, `tailwind_v3`, `bootstrap`, `vanilla`): `[data-transition="slide"]` animates the entering frame with `@starting-style translate` (slides in from the right on forward, from the left on back); `[data-transition="fade"]` cross-fades via `opacity`. The layer clips off-screen frames via a `:has([data-transition])` → `overflow: hidden` rule during animation, then the runtime removes `[data-transition]` / `[data-direction]` on `transitionend` (safety fallback: `#leaveTimeoutMs`-based timeout) so `overflow-y: auto` is fully restored afterward.
+- **`top` / `bottom` drawer sides** in the `vanilla` and `bootstrap` presets (parity with `tailwind_v3` / `tailwind_v4`). Both presets gain the `--modal-stack-drawer-height` CSS token (default `22rem`), entry/exit `@starting-style` translate animations, `[data-leaving]` exit rules, and updated header comments.
+- **`overscroll-behavior: contain`** on `[data-modal-stack-target="layer"]` in all four presets — prevents scroll chaining (Android pull-to-refresh, iOS bounce scrolling propagating to the page) when a modal's content is scrolled to its top or bottom boundary.
+- **Safe-area inset** support: `padding-bottom: env(safe-area-inset-bottom, 0)` on `bottom_sheet` and `drawer[data-side="bottom"]` layers in all four presets — panel content is no longer obscured by the iOS home indicator.
+- **`:focus-visible` ring** on `.modal-stack__panel-back` in all four presets — the back button now renders a keyboard-focus outline (`2px solid currentColor, offset 4px`) in full compliance with WCAG 2.4.7.
 
 ### Changed
+- `modal_stack_container` helper: extracted `build_panel_attrs` private method — eliminates the `Metrics/MethodLength` RuboCop offense introduced by the `back:` / `transition:` parameters added in 0.4.0.
 
 ### Fixed
+- `escapeAttr` fallback (used when `CSS.escape` is unavailable) now escapes `[` and `]` in addition to `"` and `\`. An unescaped `]` in a layer ID would prematurely close a CSS attribute selector such as `[data-layer-id="…"]`, producing either a silent no-op or a selector error depending on the browser.
 
 ## [0.4.0] - 2026-05-08
 

@@ -87,8 +87,8 @@ browser-`back`-ing through nested confirmation steps — they break down.
 - 🔗 **Deep-linking** — the top of the stack lives in `window.location`. Bookmark it, share it, refresh it.
 - ↩️ **Browser back = pop or step-back** — frame paths collapse to single history jumps when the layer closes.
 - 🎮 **Imperative Turbo Stream actions** — `turbo_stream.modal_push / modal_pop / modal_replace / modal_close_all / modal_path_to / modal_path_back` from anywhere.
-- 🎨 **Three CSS presets** — Tailwind, Bootstrap, vanilla. All driven by `--modal-stack-*` CSS variables for easy retheming.
-- 🪞 **Four variants** — `modal`, `drawer` (with side), `bottom_sheet`, `confirmation`.
+- 🎨 **Four CSS presets** — Tailwind v4, Tailwind v3, Bootstrap, vanilla. All driven by `--modal-stack-*` CSS variables for easy retheming. Frame transitions (`slide`, `fade`) are fully implemented in every preset via `@starting-style`.
+- 🪞 **Four variants** — `modal`, `drawer` (left/right/top/bottom), `bottom_sheet`, `confirmation`.
 - 📏 **Sizes & custom dimensions** — `:sm` / `:md` / `:lg` / `:xl`, or pass `width:` / `height:` strings (`"42rem"`, `"min(90vw, 56rem)"`).
 - 🔒 **Dismissible flag** — `dismissible: false` for confirmations users must answer.
 - ♿ **`prefers-reduced-motion`** — animations collapse to 1ms when the OS asks.
@@ -550,11 +550,14 @@ Each pushed layer is a `<div>` inside the dialog with:
 ```
 
 The frame wrapper sits between the layer and the panel content. It
-defaults to `display: contents` in every preset so it is invisible to
-host CSS unless you opt in via `[data-transition][data-direction]`
-hooks (e.g. an `@starting-style` rule that animates the entering
-frame). `data-frame-depth="N"` on the layer reflects the current path
-length — `1` for layers without a path, `N` for layers `N` frames deep.
+defaults to `display: contents` so it is invisible to host CSS. When a
+transition is requested, the runtime sets `[data-transition]` and
+`[data-direction]` on the entering frame — the shipped presets pick
+these up via `@starting-style` rules (`slide`: translate from right/left,
+`fade`: opacity 0→1) and restore `overflow-y: auto` on the layer once
+`transitionend` fires. `data-frame-depth="N"` on the layer reflects the
+current path length — `1` for layers without a path, `N` for layers `N`
+frames deep.
 
 Underlying layers receive `inert`. A layer being unmounted gets
 `data-leaving=""` for the duration of the exit transition (capped at
@@ -693,6 +696,15 @@ Four opinionated stylesheets ship with the gem. Pick one with
 | `:vanilla`      | `app/assets/stylesheets/modal_stack/vanilla.css`      | Framework-free, neutral defaults |
 | `:none`         | —                                                     | Bring your own CSS |
 
+All four presets share the following capabilities:
+
+- **Frame transitions** — `slide` (horizontal translate via `@starting-style`) and `fade` (opacity) are both fully implemented. The entering frame animates in; the layer clips off-screen frames with `overflow: hidden` for the duration, then restores `overflow-y: auto`.
+- **All four drawer sides** — `left`, `right`, `top`, `bottom` with matching entry/exit animations.
+- **Mobile scroll containment** — `overscroll-behavior: contain` prevents scroll chaining when modal content reaches its boundary.
+- **Safe-area inset** — `bottom_sheet` and `drawer[data-side="bottom"]` apply `env(safe-area-inset-bottom)` padding.
+- **Keyboard focus ring** — `.modal-stack__panel-back` has a `:focus-visible` outline.
+- **Reduced-motion** — frame transition durations collapse to `1ms` alongside layer transitions.
+
 All presets are driven by the same `--modal-stack-*` CSS variables.
 Override on `:root` to retheme without touching the gem:
 
@@ -751,9 +763,11 @@ provided by the host app).
 
 - **Native `<dialog>`** — modern browsers handle focus trap, ESC, and `aria-modal` for free.
 - **Inertness** — underlying layers in a stack receive `inert`, so screen-readers and keyboard navigation skip them.
-- **Reduced motion** — when `prefers-reduced-motion: reduce` is set, presets collapse transitions to 1ms.
+- **Reduced motion** — when `prefers-reduced-motion: reduce` is set, presets collapse all transitions (layer and frame) to 1 ms.
 - **Focus restoration** — when a layer is popped, focus returns to the trigger element (per `<dialog>` semantics).
-- **Body scroll lock** — `<body data-modal-stack-locked>` prevents background scroll while the dialog is open.
+- **Back-button focus ring** — `.modal-stack__panel-back` renders a `:focus-visible` outline on keyboard focus in every preset.
+- **Body scroll lock** — `<body data-modal-stack-locked>` prevents background scroll while the dialog is open; `overscroll-behavior: contain` on layers additionally blocks scroll chaining (pull-to-refresh, iOS bounce) when modal content is scrolled to its boundary.
+- **Safe-area padding** — `bottom_sheet` and bottom drawers apply `env(safe-area-inset-bottom)` so content is never hidden under the iOS home indicator.
 
 ---
 
