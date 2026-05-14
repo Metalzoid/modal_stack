@@ -10,12 +10,18 @@ RSpec.describe "Modal path wizard", type: :system, js: true do
     expect(page).to have_modal_frames(2)
   end
 
-  # Navigate to step C and wait for the content to appear — more stable than
-  # asserting data-frame-depth since it proves mountFrame completed and the
-  # new frame's HTML is in the DOM, regardless of transition timing.
+  # Navigate to step C and wait for the content to appear at the layer level.
+  # Do NOT pre-scope with within_modal_frame: that helper captures the current
+  # frame at call time — if the Turbo stream response hasn't arrived yet on a
+  # slow runner, it would scope to the step-B frame and wait forever for
+  # "Path step C" inside it.  Querying the layer directly retries until the
+  # new frame's content is in the DOM, regardless of transition timing.
   def wizard_to_c
     within_modal_frame { click_button "To C" }
-    within_modal_frame { expect(page).to have_css("h2#path-step", text: "Path step C") }
+    expect(page).to have_css(
+      "#{ModalStack::Capybara::LAYER_SELECTOR} h2#path-step",
+      text: "Path step C"
+    )
   end
 
   it "advances through frames and steps back via the back-link helper" do
