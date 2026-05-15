@@ -11,7 +11,7 @@ RSpec.describe "Modal path wizard", type: :system, js: true do
   def wizard_to_b
     click_link "Path wizard", id: "open-path-wizard"
     click_button "To B"
-    expect(page).to have_modal_frames(2)
+    find(:button, "To C") # waits for step B content + Turbo event wiring
   end
 
   def wizard_to_c
