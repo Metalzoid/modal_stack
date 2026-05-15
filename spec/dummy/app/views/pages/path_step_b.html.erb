@@ -1,4 +1,4 @@
 <%= modal_stack_container(back: true) do %>
   <h2 id="path-step">Path step B</h2>
-  <%= button_to "To C", path_wizard_to_c_path, method: :post, data: { turbo_stream: true }, id: "to-c" %>
+  <%= link_to "To C", path_wizard_to_c_path, data: { turbo_stream: true }, id: "to-c" %>
 <% end %>

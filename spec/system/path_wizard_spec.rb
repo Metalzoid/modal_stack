@@ -10,12 +10,12 @@ RSpec.describe "Modal path wizard", type: :system, js: true do
 
   def wizard_to_b
     click_link "Path wizard", id: "open-path-wizard"
-    click_button "To B"
-    find(:button, "To C") # waits for step B content + Turbo event wiring
+    click_link "To B"
+    find(:link, "To C") # waits for step B content before clicking
   end
 
   def wizard_to_c
-    click_button "To C"
+    click_link "To C"
     expect(page).to have_css(
       "#{ModalStack::Capybara::LAYER_SELECTOR} h2#path-step",
       text: "Path step C"

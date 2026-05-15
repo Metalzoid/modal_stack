@@ -14,6 +14,6 @@ Rails.application.routes.draw do
   get "/path_wizard/step_a",  to: "pages#path_step_a", as: :path_wizard_step_a
   get "/path_wizard/step_b",  to: "pages#path_step_b", as: :path_wizard_step_b
   get "/path_wizard/step_c",  to: "pages#path_step_c", as: :path_wizard_step_c
-  post "/path_wizard/to_b",   to: "pages#path_to_b",   as: :path_wizard_to_b
-  post "/path_wizard/to_c",   to: "pages#path_to_c",   as: :path_wizard_to_c
+  get "/path_wizard/to_b",    to: "pages#path_to_b",   as: :path_wizard_to_b
+  get "/path_wizard/to_c",    to: "pages#path_to_c",   as: :path_wizard_to_c
 end
