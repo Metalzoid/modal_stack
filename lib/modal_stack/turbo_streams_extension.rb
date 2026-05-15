@@ -6,6 +6,7 @@ module ModalStack
   # so the standard `turbo_stream.foo(...)` form keeps working alongside.
   module TurboStreamsExtension
     HISTORY_MODES = %i[push replace].freeze
+    PATH_TRANSITIONS = %i[slide fade none].freeze
 
     # Push a new layer on top of the stack. The content is rendered using
     # the same options as Turbo's standard stream actions
@@ -64,10 +65,65 @@ module ModalStack
       turbo_stream_action_tag(:modal_close_all, target: ModalStack::TARGET_ID)
     end
 
+    # Navigate forward inside the top layer's path. The current frame is
+    # cached in memory so a subsequent `modal_path_back` (or browser back)
+    # restores it without a network round-trip. Pass `stale: true` (or set
+    # `X-Modal-Stack-Stale: true` on the response) to force a refetch on
+    # back.
+    def modal_path_to(content = nil, url: nil, transition: nil, stale: false, layer_id: nil, **rendering, &)
+      template = render_template(ModalStack::TARGET_ID, content, **rendering, &)
+      turbo_stream_action_tag(
+        :modal_path_to,
+        target: ModalStack::TARGET_ID,
+        template: template,
+        data: modal_data(
+          url: url,
+          transition: validate_path_transition(resolved_path_transition(transition)),
+          stale: stale ? "true" : nil,
+          layer_id: layer_id
+        )
+      )
+    end
+
+    # Step back through the top layer's path. Defaults to one frame; pass
+    # `steps: N` to collapse multiple frames at once. Clamps at the first
+    # frame — does not close the layer.
+    def modal_path_back(steps: 1, transition: nil)
+      n = Integer(steps)
+      raise ArgumentError, "steps must be a positive integer, got #{steps.inspect}" if n < 1
+
+      turbo_stream_action_tag(
+        :modal_path_back,
+        target: ModalStack::TARGET_ID,
+        data: modal_data(
+          steps: n,
+          transition: validate_path_transition(resolved_path_transition(transition))
+        )
+      )
+    end
+
     private
 
     def modal_data(**attrs)
       attrs.compact
+    end
+
+    def validate_path_transition(value)
+      return nil if value.nil?
+
+      sym = value.to_sym
+      unless PATH_TRANSITIONS.include?(sym)
+        raise ArgumentError, "transition must be one of #{PATH_TRANSITIONS.inspect}, got #{value.inspect}"
+      end
+
+      sym
+    end
+
+    # Falls back to the configured default when a call site doesn't
+    # specify a transition. Pass `transition: :none` to disable
+    # explicitly.
+    def resolved_path_transition(value)
+      value || ModalStack.configuration.default_path_transition
     end
   end
 end

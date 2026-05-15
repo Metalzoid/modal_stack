@@ -28,7 +28,7 @@ module ModalStack
         attrs[:id] ||= config.dialog_id
         attrs[:data] = build_dialog_data(attrs[:data], config)
 
-        content_tag(:dialog, "".html_safe, attrs)
+        render partial: "modal_stack/dialog", locals: { dialog_attrs: attrs }
       end
 
       # Merges caller-provided data attrs with the gem-managed ones (controller,

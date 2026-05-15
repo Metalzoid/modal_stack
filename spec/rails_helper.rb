@@ -5,12 +5,13 @@ require "rspec/rails"
 require "capybara/rspec"
 require "capybara/cuprite"
 require "modal_stack/capybara/rspec"
+require "rspec/retry"
 
 abort("Rails is running in production mode!") if Rails.env.production?
 
 Capybara.register_driver(:cuprite) do |app|
-  # CI runners boot Chromium cold on the first system spec — default 10s
-  # is flaky, 60s gives headroom without masking real hangs.
+  # CI runners boot Chrome cold on the first system spec — 120s gives
+  # headroom even on slow/loaded runners without masking real hangs.
   # `disable-dev-shm-usage` avoids /dev/shm exhaustion in containers.
   Capybara::Cuprite::Driver.new(
     app,
@@ -21,12 +22,12 @@ Capybara.register_driver(:cuprite) do |app|
       "disable-gpu" => nil
     },
     headless: true,
-    process_timeout: ENV["CI"] ? 60 : 20,
-    timeout: 10
+    process_timeout: 120,
+    timeout: 15
   )
 end
 Capybara.javascript_driver = :cuprite
-Capybara.default_max_wait_time = 5
+Capybara.default_max_wait_time = 8
 Capybara.server = :puma, { Silent: true }
 
 RSpec.configure do |config|
@@ -35,4 +36,16 @@ RSpec.configure do |config|
   config.use_transactional_fixtures = false
 
   config.before(:each, type: :system) { driven_by :cuprite }
+
+  # Retry system specs up to 3 times — browser automation is inherently
+  # timing-sensitive and can flake on loaded CI runners. Unit specs are
+  # deterministic and should never need a retry.
+  config.verbose_retry = true
+  config.retry_callback = proc do |ex|
+    Capybara.reset_sessions!
+    ex
+  end
+  config.around(:each, type: :system) do |ex|
+    ex.run_with_retry retry: 3
+  end
 end

@@ -1,8 +1,13 @@
 export const SNAPSHOT_KEY = "modalStackSnapshot";
 export const FRAGMENT_HEADER = "X-Modal-Stack-Request";
+// Server response header that flags the just-rendered frame as stale —
+// the runtime will refetch instead of restoring from the in-memory cache
+// when the user steps back to it.
+export const STALE_HEADER = "X-Modal-Stack-Stale";
 export const SCROLLBAR_WIDTH_VAR = "--modal-stack-scrollbar-width";
 
 const LAYER_SELECTOR = '[data-modal-stack-target="layer"]';
+const FRAME_SELECTOR = "[data-modal-stack-frame]";
 // CSS variable host stylesheets set to declare their leave-transition
 // duration (e.g. "220ms"). When present, the runtime sizes its safety
 // timeout from this value; otherwise it falls back to a conservative cap.
@@ -48,6 +53,10 @@ export class BrowserRuntime {
     this.fetcher = fetcher;
     this.store = store;
     this.document = documentRef;
+    // Cached DocumentFragments for path frames, keyed by `${layerId}#${frameIndex}`.
+    // Populated by mountFrame on the way forward, drained by unmountFrame on
+    // the way back, purged on layer teardown via clearFrameCache.
+    this._frameCache = new Map();
   }
 
   showDialog() {
@@ -93,7 +102,10 @@ export class BrowserRuntime {
     const frag = await this.#resolveFragment({ url, html, fragment });
     const layer = this.document.createElement("div");
     this.#applyLayerAttrs(layer, { layerId, depth, variant, dismissible, size, side, width, height });
-    layer.append(...frag.childNodes);
+    this.#applyFrameDepth(layer, 0);
+    const wrapper = this.#createFrameWrapper({ frameIndex: 0 });
+    wrapper.append(...frag.childNodes);
+    layer.appendChild(wrapper);
     this.dialog.appendChild(layer);
   }
 
@@ -102,7 +114,81 @@ export class BrowserRuntime {
     const layer = this.#topLayer();
     if (!layer) return;
     this.#applyLayerAttrs(layer, { layerId, depth, variant, dismissible, size, side, width, height });
-    layer.replaceChildren(...frag.childNodes);
+    this.#applyFrameDepth(layer, 0);
+    const wrapper = this.#createFrameWrapper({ frameIndex: 0 });
+    wrapper.append(...frag.childNodes);
+    layer.replaceChildren(wrapper);
+  }
+
+  async mountFrame({ layerId, fromFrameIndex, toFrameIndex, url, html, fragment, transition }) {
+    const layer = this.#findLayer(layerId);
+    if (!layer) return;
+    const frag = await this.#resolveFragment({ url, html, fragment });
+
+    // Snapshot the outgoing frame's children for back navigation. We cache
+    // the original nodes (not clones) and detach them from the DOM — the
+    // animateOut below operates on the wrapper, which we'll throw away.
+    const oldFrame = this.#findFrame(layer, fromFrameIndex);
+    if (oldFrame) {
+      const cached = this.document.createDocumentFragment();
+      cached.append(...oldFrame.childNodes);
+      this._frameCache.set(this.#frameKey(layerId, fromFrameIndex), cached);
+    }
+
+    const newFrame = this.#createFrameWrapper({ frameIndex: toFrameIndex, transition, direction: "forward" });
+    newFrame.append(...frag.childNodes);
+    layer.appendChild(newFrame);
+    this.#applyFrameDepth(layer, toFrameIndex);
+
+    // Old frame is removed synchronously. Entering frames carry
+    // data-transition + data-direction so host CSS can drive the *enter*
+    // animation via @starting-style; the leaving frame would need its own
+    // overlapping layout (e.g. position: absolute) to also animate out,
+    // which we leave to the host CSS preset.
+    if (oldFrame) oldFrame.remove();
+
+    // Remove transition attrs once the animation completes so the :has()
+    // rule that clips overflow doesn't persist indefinitely.
+    if (transition) this.#cleanupFrameTransition(newFrame);
+  }
+
+  async unmountFrame({ layerId, fromFrameIndex, toFrameIndex, url, stale, transition }) {
+    const layer = this.#findLayer(layerId);
+    if (!layer) return;
+
+    const cacheKey = this.#frameKey(layerId, toFrameIndex);
+    let restored = stale ? null : this._frameCache.get(cacheKey) ?? null;
+    if (!restored) {
+      const result = await this.fetchFragment(url);
+      restored = result.fragment;
+      this._frameCache.set(cacheKey, cloneFragment(restored, this.document));
+    } else {
+      // Clone so the cache entry remains usable if we step back here again
+      // after another forward.
+      restored = cloneFragment(restored, this.document);
+    }
+
+    const newFrame = this.#createFrameWrapper({ frameIndex: toFrameIndex, transition, direction: "back" });
+    newFrame.append(...restored.childNodes);
+    layer.appendChild(newFrame);
+    this.#applyFrameDepth(layer, toFrameIndex);
+
+    // Drop cache entries for frames that are now gone (anything past the
+    // restored index — we only keep entries for frames still tracked in
+    // state).
+    this.#purgeFrameCacheAbove(layerId, toFrameIndex);
+
+    const oldFrame = this.#findFrame(layer, fromFrameIndex);
+    if (oldFrame) oldFrame.remove();
+
+    if (transition) this.#cleanupFrameTransition(newFrame);
+  }
+
+  clearFrameCache({ layerId }) {
+    const prefix = `${layerId}#`;
+    for (const key of [...this._frameCache.keys()]) {
+      if (key.startsWith(prefix)) this._frameCache.delete(key);
+    }
   }
 
   async unmountTopLayer() {
@@ -197,6 +283,57 @@ export class BrowserRuntime {
     );
   }
 
+  #findFrame(layer, frameIndex) {
+    return layer.querySelector(
+      `${FRAME_SELECTOR}[data-frame-index="${escapeAttr(String(frameIndex))}"]`,
+    );
+  }
+
+  #frameKey(layerId, frameIndex) {
+    return `${layerId}#${frameIndex}`;
+  }
+
+  #purgeFrameCacheAbove(layerId, frameIndex) {
+    const prefix = `${layerId}#`;
+    for (const key of [...this._frameCache.keys()]) {
+      if (!key.startsWith(prefix)) continue;
+      const idx = Number(key.slice(prefix.length));
+      if (Number.isFinite(idx) && idx > frameIndex) {
+        this._frameCache.delete(key);
+      }
+    }
+  }
+
+  // Removes [data-transition] and [data-direction] from a frame once its
+  // enter animation ends. This restores overflow-y:auto on the layer (the
+  // :has([data-transition]) rule in the CSS preset keeps overflow:hidden
+  // while the animation runs to clip off-screen slide frames).
+  #cleanupFrameTransition(frameEl) {
+    let done = false;
+    const cleanup = () => {
+      if (done) return;
+      done = true;
+      frameEl.removeAttribute("data-transition");
+      frameEl.removeAttribute("data-direction");
+    };
+    frameEl.addEventListener("transitionend", cleanup, { once: true });
+    setTimeout(cleanup, this.#leaveTimeoutMs());
+  }
+
+  #createFrameWrapper({ frameIndex, transition = null, direction = null }) {
+    const el = this.document.createElement("div");
+    el.dataset.modalStackFrame = "";
+    el.dataset.frameIndex = String(frameIndex);
+    if (transition) el.dataset.transition = transition;
+    if (direction) el.dataset.direction = direction;
+    return el;
+  }
+
+  #applyFrameDepth(layer, topFrameIndex) {
+    layer.dataset.frameIndex = String(topFrameIndex);
+    layer.dataset.frameDepth = String(topFrameIndex + 1);
+  }
+
   #topLayer() {
     const layers = this.dialog.querySelectorAll(LAYER_SELECTOR);
     return layers[layers.length - 1] ?? null;
@@ -241,13 +378,15 @@ export class BrowserRuntime {
       throw new Error(`modal_stack: fetch ${url} → ${resp.status}`);
     }
     const html = await resp.text();
-    return parseFragment(html, this.document);
+    const stale = parseStaleHeader(resp);
+    return { fragment: parseFragment(html, this.document), stale };
   }
 
   async #resolveFragment({ url, html, fragment }) {
     if (fragment) return fragment;
     if (html != null) return parseFragment(html, this.document);
-    return this.fetchFragment(url);
+    const result = await this.fetchFragment(url);
+    return result.fragment;
   }
 }
 
@@ -257,6 +396,28 @@ function parseFragment(html, doc) {
   const fragment = doc.createDocumentFragment();
   fragment.append(...parsed.body.childNodes);
   return fragment;
+}
+
+function parseStaleHeader(resp) {
+  const headers = resp?.headers;
+  const value =
+    typeof headers?.get === "function"
+      ? headers.get(STALE_HEADER) ?? headers.get(STALE_HEADER.toLowerCase())
+      : null;
+  if (!value) return false;
+  const normalized = String(value).trim().toLowerCase();
+  return normalized === "true" || normalized === "1";
+}
+
+function cloneFragment(fragment, doc) {
+  if (typeof fragment?.cloneNode === "function") {
+    return fragment.cloneNode(true);
+  }
+  const clone = doc.createDocumentFragment();
+  if (fragment?.childNodes) {
+    for (const node of fragment.childNodes) clone.appendChild(node.cloneNode(true));
+  }
+  return clone;
 }
 
 // Marks the layer with [data-leaving] so the host CSS can transition it
@@ -294,5 +455,6 @@ function escapeAttr(value) {
   if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
     return CSS.escape(value);
   }
-  return String(value).replace(/["\\]/g, "\\$&");
+  // Fallback: escape chars that break CSS attribute selectors ([attr="val"])
+  return String(value).replace(/["\\[\]]/g, "\\$&");
 }

@@ -6,10 +6,11 @@ require "modal_stack/helpers/modal_stack_container_helper"
 
 RSpec.describe ModalStack::Helpers::ModalStackContainerHelper do
   let(:view) do
+    engine_views = File.expand_path("../../../app/views", __dir__)
     Class.new(ActionView::Base) do
       include ModalStack::Helpers::ModalStackContainerHelper
     end.with_empty_template_cache.new(
-      ActionView::LookupContext.new([]),
+      ActionView::LookupContext.new([engine_views]),
       {},
       nil
     )
@@ -47,5 +48,26 @@ RSpec.describe ModalStack::Helpers::ModalStackContainerHelper do
   it "drops nil side from data attributes" do
     out = view.modal_stack_container { "x" }
     expect(out).not_to include("data-modal-stack-side=")
+  end
+
+  it "exposes the path transition as a data attribute when provided" do
+    out = view.modal_stack_container(transition: :slide) { "x" }
+    expect(out).to include('data-modal-stack-transition="slide"')
+  end
+
+  it "omits the transition data attribute by default" do
+    out = view.modal_stack_container { "x" }
+    expect(out).not_to include("data-modal-stack-transition=")
+  end
+
+  it "renders a back button when back: true is passed" do
+    out = view.modal_stack_container(back: true) { "x" }
+    expect(out).to include('class="modal-stack__panel-back"')
+    expect(out).to include('data-action="click-&gt;modal-stack#pathBack"').or include('data-action="click->modal-stack#pathBack"')
+  end
+
+  it "does not render a back button by default" do
+    out = view.modal_stack_container { "x" }
+    expect(out).not_to include("modal-stack__panel-back")
   end
 end

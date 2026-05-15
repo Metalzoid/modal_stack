@@ -23,6 +23,9 @@ function recordingRuntime() {
     "rebuildFromSnapshot",
     "persistSnapshot",
     "clearSnapshot",
+    "mountFrame",
+    "unmountFrame",
+    "clearFrameCache",
   ];
   const runtime = { _calls: calls };
   for (const name of handlerNames) {
@@ -198,6 +201,93 @@ describe("replaceTop", () => {
   });
 });
 
+describe("pathTo", () => {
+  test("appends a frame, dispatches mountFrame + pushHistory + persistSnapshot", async () => {
+    await orchestrator.push({ id: "L1", url: "/wizard/1" });
+    runtime._calls.length = 0;
+
+    await orchestrator.pathTo({ url: "/wizard/2" });
+    expect(orchestrator.layers[0].frames).toHaveLength(2);
+    const types = runtime._calls.map((c) => c.type);
+    expect(types).toEqual([
+      "mountFrame",
+      "pushHistory",
+      "persistSnapshot",
+    ]);
+    const mount = runtime._calls.find((c) => c.type === "mountFrame");
+    expect(mount).toMatchObject({
+      layerId: "L1",
+      fromFrameIndex: 0,
+      toFrameIndex: 1,
+      url: "/wizard/2",
+      stale: false,
+    });
+  });
+
+  test("explicit stale: true wins over the response header", async () => {
+    await orchestrator.push({ id: "L1", url: "/wizard/1" });
+    runtime._calls.length = 0;
+
+    await orchestrator.pathTo({ url: "/wizard/2", stale: true });
+    const mount = runtime._calls.find((c) => c.type === "mountFrame");
+    expect(mount.stale).toBe(true);
+    expect(orchestrator.layers[0].frames[1].stale).toBe(true);
+  });
+
+  test("threads transition through to the runtime", async () => {
+    await orchestrator.push({ id: "L1", url: "/wizard/1" });
+    runtime._calls.length = 0;
+    await orchestrator.pathTo({ url: "/wizard/2" }, { transition: "fade" });
+    expect(runtime._calls.find((c) => c.type === "mountFrame")).toMatchObject({
+      transition: "fade",
+    });
+  });
+});
+
+describe("pathBack", () => {
+  test("on a single-frame layer is a noop (does not close the layer)", async () => {
+    await orchestrator.push({ id: "L1", url: "/wizard/1" });
+    runtime._calls.length = 0;
+    await orchestrator.pathBack();
+    expect(orchestrator.layers[0].frames).toHaveLength(1);
+    expect(runtime._calls).toEqual([]);
+  });
+
+  test("steps back through frames and walks history", async () => {
+    await orchestrator.push({ id: "L1", url: "/wizard/1" });
+    await orchestrator.pathTo({ url: "/wizard/2" });
+    await orchestrator.pathTo({ url: "/wizard/3" });
+    runtime._calls.length = 0;
+
+    await orchestrator.pathBack({ steps: 2 });
+    expect(orchestrator.layers[0].frames).toHaveLength(1);
+    const types = runtime._calls.map((c) => c.type);
+    expect(types).toEqual([
+      "unmountFrame",
+      "historyBack",
+      "persistSnapshot",
+    ]);
+    expect(runtime._calls.find((c) => c.type === "historyBack")).toEqual({
+      type: "historyBack",
+      n: 2,
+    });
+  });
+
+  test("guards the popstate that history.go triggers", async () => {
+    await orchestrator.push({ id: "L1", url: "/wizard/1" });
+    await orchestrator.pathTo({ url: "/wizard/2" });
+    runtime._calls.length = 0;
+
+    await orchestrator.pathBack();
+    runtime._calls.length = 0;
+    await orchestrator.onPopstate({
+      historyState: { stackId: STACK_ID, layerId: "L1", depth: 1, frameIndex: 0 },
+      locationHref: "/wizard/1",
+    });
+    expect(runtime._calls).toEqual([]);
+  });
+});
+
 describe("closeAll", () => {
   test("clears layers and increments guard once for the historyBack call", async () => {
     await orchestrator.push({ id: "L1", url: "/x" });
@@ -210,6 +300,8 @@ describe("closeAll", () => {
     expect(types).toEqual([
       "closeDialog",
       "unmountAllLayers",
+      "clearFrameCache",
+      "clearFrameCache",
       "unlockScroll",
       "historyBack",
       "clearSnapshot",
@@ -256,6 +348,9 @@ describe("prefetch cache + abort", () => {
       "rebuildFromSnapshot",
       "persistSnapshot",
       "clearSnapshot",
+      "mountFrame",
+      "unmountFrame",
+      "clearFrameCache",
     ];
     const runtime = { _calls: calls, _fetches: [], _aborts: aborts };
     for (const name of handlerNames) {
@@ -467,6 +562,7 @@ describe("onPopstate", () => {
     expect(types).toEqual([
       "closeDialog",
       "unmountAllLayers",
+      "clearFrameCache",
       "unlockScroll",
       "clearSnapshot",
     ]);

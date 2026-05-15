@@ -2,16 +2,22 @@
  * @typedef {"modal" | "drawer" | "bottom_sheet" | "confirmation"} Variant
  * @typedef {"left" | "right" | "top" | "bottom"} DrawerSide
  * @typedef {"sm" | "md" | "lg" | "xl"} Size
+ * @typedef {"slide" | "fade" | "none"} Transition
+ *
+ * @typedef {Object} Frame
+ * @property {string} url     Frame URL — written to history when this frame is on top
+ * @property {boolean} stale  When true, runtime refetches before restoring on back
  *
  * @typedef {Object} Layer
  * @property {string} id        Stable layer identifier (used for inertness + DOM lookup)
- * @property {string} url       Layer URL — also written to history
+ * @property {string} url       Top frame URL — kept for back-compat with the existing API
  * @property {Variant} variant
  * @property {boolean} dismissible
  * @property {Size|null} size
  * @property {DrawerSide|null} side  Required for drawers; null otherwise
  * @property {string|null} width    Free-form CSS width (e.g. "42rem")
  * @property {string|null} height
+ * @property {readonly Frame[]} frames  Path frames; layer.url === frames[last].url
  *
  * @typedef {Object} Stack
  * @property {string} stackId
@@ -29,7 +35,11 @@ export const VARIANTS = Object.freeze([
   "confirmation",
 ]);
 
-const SNAPSHOT_VERSION = 1;
+export const TRANSITIONS = Object.freeze(["slide", "fade", "none"]);
+
+// v2 introduced `frames` per layer (modal path feature). v1 snapshots are
+// rehydrated by synthesising a single-frame array — see restore().
+const SNAPSHOT_VERSION = 2;
 const DEFAULT_MAX_AGE_MS = 30 * 60 * 1000;
 const DRAWER_SIDES = Object.freeze(["left", "right", "top", "bottom"]);
 const MAX_DEPTH_STRATEGIES = Object.freeze(["raise", "warn", "silent"]);
@@ -66,17 +76,36 @@ function normalizeLayerOptions({ variant, size, side, width, height }) {
   };
 }
 
-function freezeLayer({ id, url, variant, dismissible, size, side, width, height }) {
+function freezeFrame({ url, stale = false }) {
+  if (typeof url !== "string" || url.length === 0) {
+    throw new Error("frame.url required");
+  }
+  return Object.freeze({ url, stale: !!stale });
+}
+
+function freezeFrames(frames) {
+  return Object.freeze(frames.map(freezeFrame));
+}
+
+function freezeLayer({ id, url, variant, dismissible, size, side, width, height, frames }) {
   const normalized = normalizeLayerOptions({ variant, size, side, width, height });
+  // The layer's url is always the top frame's url; if frames isn't supplied
+  // (e.g. fresh push or restoring a v1 snapshot) we synthesize a single frame.
+  const framesArray = Array.isArray(frames) && frames.length > 0
+    ? frames
+    : [{ url, stale: false }];
+  const frozenFrames = freezeFrames(framesArray);
+  const topUrl = frozenFrames[frozenFrames.length - 1].url;
   return Object.freeze({
     id,
-    url,
+    url: topUrl,
     variant,
     dismissible: !!dismissible,
     size: normalized.size,
     side: normalized.side,
     width: normalized.width,
     height: normalized.height,
+    frames: frozenFrames,
   });
 }
 
@@ -97,6 +126,20 @@ export function createStack({ stackId, baseUrl }) {
  */
 export function topLayer(state) {
   return state.layers[state.layers.length - 1] ?? null;
+}
+
+function totalFrameCount(layers) {
+  let n = 0;
+  for (const l of layers) n += l.frames.length;
+  return n;
+}
+
+function validateTransition(value) {
+  if (value == null) return null;
+  if (!TRANSITIONS.includes(value)) {
+    throw new Error(`unknown transition: ${value}`);
+  }
+  return value;
 }
 
 /**
@@ -178,7 +221,12 @@ export function push(state, layer, options = {}) {
   commands.push({
     type: "pushHistory",
     url: newLayer.url,
-    historyState: { stackId: state.stackId, layerId: newLayer.id, depth },
+    historyState: {
+      stackId: state.stackId,
+      layerId: newLayer.id,
+      depth,
+      frameIndex: 0,
+    },
   });
   commands.push({ type: "persistSnapshot" });
 
@@ -186,19 +234,146 @@ export function push(state, layer, options = {}) {
 }
 
 /**
- * Pop the top layer. No-op when the stack is empty.
+ * Append a frame to the top layer's path. Forward navigation in a wizard
+ * that retains a back-history.
+ *
+ * @param {Stack} state
+ * @param {{ url: string, stale?: boolean }} frame
+ * @param {{ transition?: Transition|null }} [options]
+ * @returns {Transition}
+ */
+export function pathTo(state, frame, options = {}) {
+  if (state.layers.length === 0) {
+    throw new Error("pathTo requires at least one layer");
+  }
+  if (typeof frame?.url !== "string" || frame.url.length === 0) {
+    throw new Error("pathTo requires a frame.url");
+  }
+  const transition = validateTransition(options.transition ?? null);
+
+  const top = topLayer(state);
+  const previousFrameIndex = top.frames.length - 1;
+  const newFrame = freezeFrame({ url: frame.url, stale: !!frame.stale });
+  const newFrames = [...top.frames, newFrame];
+  const newTop = freezeLayer({
+    id: top.id,
+    url: newFrame.url,
+    variant: top.variant,
+    dismissible: top.dismissible,
+    size: top.size,
+    side: top.side,
+    width: top.width,
+    height: top.height,
+    frames: newFrames,
+  });
+  const newLayers = Object.freeze([...state.layers.slice(0, -1), newTop]);
+  const depth = newLayers.length;
+  const newFrameIndex = newFrames.length - 1;
+
+  return {
+    state: { ...state, layers: newLayers },
+    commands: [
+      {
+        type: "mountFrame",
+        layerId: newTop.id,
+        fromFrameIndex: previousFrameIndex,
+        toFrameIndex: newFrameIndex,
+        url: newFrame.url,
+        stale: newFrame.stale,
+        ...(transition ? { transition } : {}),
+      },
+      {
+        type: "pushHistory",
+        url: newFrame.url,
+        historyState: {
+          stackId: state.stackId,
+          layerId: newTop.id,
+          depth,
+          frameIndex: newFrameIndex,
+        },
+      },
+      { type: "persistSnapshot" },
+    ],
+  };
+}
+
+/**
+ * Step back through frames in the top layer's path. Clamps at the first
+ * frame: the layer is never closed by pathBack — use pop() / closeAll()
+ * for that.
+ *
+ * @param {Stack} state
+ * @param {{ steps?: number, transition?: Transition|null }} [options]
+ * @returns {Transition}
+ */
+export function pathBack(state, options = {}) {
+  if (state.layers.length === 0) {
+    throw new Error("pathBack requires at least one layer");
+  }
+  const requestedSteps = options.steps == null ? 1 : Math.floor(options.steps);
+  if (!Number.isFinite(requestedSteps) || requestedSteps < 1) {
+    throw new Error("pathBack: steps must be a positive integer");
+  }
+  const transition = validateTransition(options.transition ?? null);
+
+  const top = topLayer(state);
+  const fromFrameIndex = top.frames.length - 1;
+  const maxSteps = top.frames.length - 1;
+  const effectiveSteps = Math.min(requestedSteps, maxSteps);
+  if (effectiveSteps === 0) return { state, commands: [] };
+
+  const toFrameIndex = fromFrameIndex - effectiveSteps;
+  const newFrames = top.frames.slice(0, toFrameIndex + 1);
+  const targetFrame = newFrames[newFrames.length - 1];
+  const newTop = freezeLayer({
+    id: top.id,
+    url: targetFrame.url,
+    variant: top.variant,
+    dismissible: top.dismissible,
+    size: top.size,
+    side: top.side,
+    width: top.width,
+    height: top.height,
+    frames: newFrames,
+  });
+  const newLayers = Object.freeze([...state.layers.slice(0, -1), newTop]);
+
+  return {
+    state: { ...state, layers: newLayers },
+    commands: [
+      {
+        type: "unmountFrame",
+        layerId: newTop.id,
+        fromFrameIndex,
+        toFrameIndex,
+        url: targetFrame.url,
+        stale: targetFrame.stale,
+        ...(transition ? { transition } : {}),
+      },
+      { type: "historyBack", n: effectiveSteps },
+      { type: "persistSnapshot" },
+    ],
+  };
+}
+
+/**
+ * Pop the top layer (and all of its path frames). No-op when the stack
+ * is empty.
  * @param {Stack} state
  * @returns {Transition}
  */
 export function pop(state) {
   if (state.layers.length === 0) return { state, commands: [] };
 
+  const popped = topLayer(state);
+  const framesToWalkBack = popped.frames.length;
   const newLayers = Object.freeze(state.layers.slice(0, -1));
   const newTop = newLayers[newLayers.length - 1] ?? null;
   const commands = [];
   if (newTop) {
     commands.push({ type: "unmountTopLayer" });
-    commands.push({ type: "historyBack", n: 1 });
+    commands.push({ type: "clearFrameCache", layerId: popped.id });
+    commands.push({ type: "historyBack", n: framesToWalkBack });
     commands.push({ type: "inertLayer", layerId: newTop.id, value: false });
     commands.push({ type: "persistSnapshot" });
   } else {
@@ -211,7 +386,8 @@ export function pop(state) {
     // after the modal is gone.
     commands.push({ type: "closeDialog" });
     commands.push({ type: "unmountTopLayer" });
-    commands.push({ type: "historyBack", n: 1 });
+    commands.push({ type: "clearFrameCache", layerId: popped.id });
+    commands.push({ type: "historyBack", n: framesToWalkBack });
     commands.push({ type: "unlockScroll" });
     commands.push({ type: "clearSnapshot" });
   }
@@ -234,6 +410,11 @@ export function replaceTop(state, patch, { historyMode = "replace" } = {}) {
   }
 
   const top = topLayer(state);
+  // replaceTop collapses the top layer's path back to a single frame
+  // — the existing path is forgotten. Walk history back one step per
+  // dropped frame so the browser's back button doesn't land on stale
+  // frame entries.
+  const framesToCollapse = top.frames.length - 1;
   const next = freezeLayer({
     id: patch.id ?? top.id,
     url: patch.url ?? top.url,
@@ -243,6 +424,8 @@ export function replaceTop(state, patch, { historyMode = "replace" } = {}) {
     side: patch.side ?? top.side,
     width: patch.width ?? top.width,
     height: patch.height ?? top.height,
+    // single-frame layer — drop any path that was on the previous layer
+    frames: undefined,
   });
   const newLayers = Object.freeze([...state.layers.slice(0, -1), next]);
   const depth = newLayers.length;
@@ -250,28 +433,35 @@ export function replaceTop(state, patch, { historyMode = "replace" } = {}) {
   const historyCmd = {
     type: historyMode === "push" ? "pushHistory" : "replaceHistory",
     url: next.url,
-    historyState: { stackId: state.stackId, layerId: next.id, depth },
+    historyState: {
+      stackId: state.stackId,
+      layerId: next.id,
+      depth,
+      frameIndex: 0,
+    },
   };
 
-  return {
-    state: { ...state, layers: newLayers },
-    commands: [
-      {
-        type: "morphTopLayer",
-        layerId: next.id,
-        url: next.url,
-        depth,
-        variant: next.variant,
-        dismissible: next.dismissible,
-        ...(next.size ? { size: next.size } : {}),
-        ...(next.side ? { side: next.side } : {}),
-        ...(next.width ? { width: next.width } : {}),
-        ...(next.height ? { height: next.height } : {}),
-      },
-      historyCmd,
-      { type: "persistSnapshot" },
-    ],
-  };
+  const commands = [];
+  if (framesToCollapse > 0) {
+    commands.push({ type: "clearFrameCache", layerId: top.id });
+    commands.push({ type: "historyBack", n: framesToCollapse });
+  }
+  commands.push({
+    type: "morphTopLayer",
+    layerId: next.id,
+    url: next.url,
+    depth,
+    variant: next.variant,
+    dismissible: next.dismissible,
+    ...(next.size ? { size: next.size } : {}),
+    ...(next.side ? { side: next.side } : {}),
+    ...(next.width ? { width: next.width } : {}),
+    ...(next.height ? { height: next.height } : {}),
+  });
+  commands.push(historyCmd);
+  commands.push({ type: "persistSnapshot" });
+
+  return { state: { ...state, layers: newLayers }, commands };
 }
 
 /**
@@ -281,7 +471,11 @@ export function replaceTop(state, patch, { historyMode = "replace" } = {}) {
  */
 export function closeAll(state) {
   if (state.layers.length === 0) return { state, commands: [] };
-  const n = state.layers.length;
+  const n = totalFrameCount(state.layers);
+  const cacheClears = state.layers.map((l) => ({
+    type: "clearFrameCache",
+    layerId: l.id,
+  }));
   return {
     state: { ...state, layers: Object.freeze([]) },
     // closeDialog first so the dialog's exit transition runs in
@@ -289,6 +483,7 @@ export function closeAll(state) {
     commands: [
       { type: "closeDialog" },
       { type: "unmountAllLayers" },
+      ...cacheClears,
       { type: "unlockScroll" },
       { type: "historyBack", n },
       { type: "clearSnapshot" },
@@ -297,8 +492,9 @@ export function closeAll(state) {
 }
 
 /**
- * Reduce a browser `popstate` into a transition: pop layers, morph the top,
- * or request a rebuild from snapshot for forward navigation.
+ * Reduce a browser `popstate` into a transition: pop layers, step back
+ * through frames, morph the top, or request a rebuild from snapshot for
+ * forward navigation.
  * @param {Stack} state
  * @param {{ historyState: any, locationHref: string }} options
  * @returns {Transition}
@@ -309,12 +505,17 @@ export function handlePopstate(state, { historyState, locationHref }) {
 
   if (!isOurs) {
     if (state.layers.length === 0) return { state, commands: [] };
+    const cacheClears = state.layers.map((l) => ({
+      type: "clearFrameCache",
+      layerId: l.id,
+    }));
     return {
       state: { ...state, layers: Object.freeze([]) },
       // closeDialog first — see closeAll() for rationale.
       commands: [
         { type: "closeDialog" },
         { type: "unmountAllLayers" },
+        ...cacheClears,
         { type: "unlockScroll" },
         { type: "clearSnapshot" },
       ],
@@ -324,8 +525,10 @@ export function handlePopstate(state, { historyState, locationHref }) {
   const targetDepth = historyState.depth ?? 0;
   const currentDepth = state.layers.length;
   const targetLayerId = historyState.layerId ?? null;
+  const targetFrameIndex = historyState.frameIndex ?? 0;
 
   if (targetDepth < currentDepth) {
+    const droppedLayers = state.layers.slice(targetDepth);
     const newLayers = Object.freeze(state.layers.slice(0, targetDepth));
     const newTop = newLayers[newLayers.length - 1] ?? null;
     const commands = [];
@@ -333,8 +536,11 @@ export function handlePopstate(state, { historyState, locationHref }) {
     // first so the dialog's exit transition runs alongside the
     // sequential unmountTopLayer cascade.
     if (!newTop) commands.push({ type: "closeDialog" });
-    for (let i = 0; i < currentDepth - targetDepth; i++) {
+    for (let i = 0; i < droppedLayers.length; i++) {
       commands.push({ type: "unmountTopLayer" });
+    }
+    for (const dropped of droppedLayers) {
+      commands.push({ type: "clearFrameCache", layerId: dropped.id });
     }
     if (newTop) {
       commands.push({ type: "inertLayer", layerId: newTop.id, value: false });
@@ -356,6 +562,55 @@ export function handlePopstate(state, { historyState, locationHref }) {
   }
 
   const top = topLayer(state);
+  if (top && targetLayerId && top.id === targetLayerId) {
+    const currentFrameIndex = top.frames.length - 1;
+    if (targetFrameIndex === currentFrameIndex) {
+      return { state, commands: [] };
+    }
+    if (targetFrameIndex < currentFrameIndex) {
+      const newFrames = top.frames.slice(0, targetFrameIndex + 1);
+      const targetFrame = newFrames[newFrames.length - 1];
+      const updatedTop = freezeLayer({
+        id: top.id,
+        url: targetFrame.url,
+        variant: top.variant,
+        dismissible: top.dismissible,
+        size: top.size,
+        side: top.side,
+        width: top.width,
+        height: top.height,
+        frames: newFrames,
+      });
+      const newLayers = Object.freeze([
+        ...state.layers.slice(0, -1),
+        updatedTop,
+      ]);
+      return {
+        state: { ...state, layers: newLayers },
+        commands: [
+          {
+            type: "unmountFrame",
+            layerId: top.id,
+            fromFrameIndex: currentFrameIndex,
+            toFrameIndex: targetFrameIndex,
+            url: targetFrame.url,
+            stale: targetFrame.stale,
+          },
+          { type: "persistSnapshot" },
+        ],
+      };
+    }
+    // Forward popstate to a frame we no longer track — happens when the
+    // user pressed back, then forward, after the path frames were dropped
+    // from state. Defer to the controller (snapshot rebuild / fetch).
+    return {
+      state,
+      commands: [
+        { type: "rebuildFromSnapshot", targetDepth, targetLayerId },
+      ],
+    };
+  }
+
   if (top && targetLayerId && top.id !== targetLayerId) {
     const updatedTop = freezeLayer({
       id: targetLayerId,
@@ -374,6 +629,7 @@ export function handlePopstate(state, { historyState, locationHref }) {
     return {
       state: { ...state, layers: newLayers },
       commands: [
+        { type: "clearFrameCache", layerId: top.id },
         {
           type: "morphTopLayer",
           layerId: targetLayerId,
@@ -396,6 +652,11 @@ export function handlePopstate(state, { historyState, locationHref }) {
 
 /**
  * Serialize the stack for sessionStorage. Versioned + timestamped.
+ *
+ * Frames are serialized as `{ url, stale }` only — the cached HTML lives
+ * in the runtime, not the snapshot, so a refresh refetches the top frame
+ * and lazily refetches earlier frames if/when the user steps back.
+ *
  * @param {Stack} state
  * @param {{ now?: () => number }} [options]
  * @returns {string}
@@ -405,14 +666,32 @@ export function snapshot(state, { now = Date.now } = {}) {
     v: SNAPSHOT_VERSION,
     stackId: state.stackId,
     baseUrl: state.baseUrl,
-    layers: state.layers,
+    layers: state.layers.map(serializeLayer),
     savedAt: now(),
   });
+}
+
+function serializeLayer(layer) {
+  return {
+    id: layer.id,
+    url: layer.url,
+    variant: layer.variant,
+    dismissible: layer.dismissible,
+    size: layer.size,
+    side: layer.side,
+    width: layer.width,
+    height: layer.height,
+    frames: layer.frames.map((f) => ({ url: f.url, stale: f.stale })),
+  };
 }
 
 /**
  * Restore a stack from a serialized snapshot. Returns null on any validation
  * failure (wrong stackId, expired, malformed JSON, etc.).
+ *
+ * Accepts both v1 (pre-frames) and v2 snapshots: v1 layers are rehydrated
+ * with a synthetic single-frame array so existing tabs survive an upgrade.
+ *
  * @param {string} serialized
  * @param {{ stackId?: string, maxAgeMs?: number, now?: () => number }} [options]
  * @returns {Stack|null}
@@ -428,7 +707,7 @@ export function restore(
   } catch {
     return null;
   }
-  if (parsed?.v !== SNAPSHOT_VERSION) return null;
+  if (parsed?.v !== 1 && parsed?.v !== SNAPSHOT_VERSION) return null;
   if (typeof parsed.stackId !== "string") return null;
   if (typeof parsed.baseUrl !== "string") return null;
   if (!Array.isArray(parsed.layers)) return null;
@@ -439,6 +718,12 @@ export function restore(
   for (const l of parsed.layers) {
     if (!l || typeof l.id !== "string" || typeof l.url !== "string") return null;
     if (!VARIANTS.includes(l.variant)) return null;
+    if (l.frames !== undefined) {
+      if (!Array.isArray(l.frames) || l.frames.length === 0) return null;
+      for (const f of l.frames) {
+        if (!f || typeof f.url !== "string") return null;
+      }
+    }
   }
 
   return Object.freeze({

@@ -128,4 +128,54 @@ RSpec.describe ModalStack::TurboStreamsExtension do
       expect(out).to include('target="modal-stack-root"')
     end
   end
+
+  describe "#modal_path_to" do
+    it "emits the path-to action with template content" do
+      out = builder.modal_path_to(partial: "wizard/step2").to_s
+      expect(out).to include('action="modal_path_to"')
+      expect(out).to include('target="modal-stack-root"')
+      expect(out).to include('data-partial="wizard/step2"')
+    end
+
+    it "passes url, transition, stale and layer_id" do
+      out = builder.modal_path_to(partial: "x", url: "/wizard/2", transition: :fade, stale: true, layer_id: "L1").to_s
+      expect(out).to include('data-url="/wizard/2"')
+      expect(out).to include('data-transition="fade"')
+      expect(out).to include('data-stale="true"')
+      expect(out).to include('data-layer-id="L1"')
+    end
+
+    it "omits stale when false" do
+      out = builder.modal_path_to(partial: "x", stale: false).to_s
+      expect(out).not_to include("data-stale")
+    end
+
+    it "rejects unknown transitions" do
+      expect { builder.modal_path_to(partial: "x", transition: :warp) }
+        .to raise_error(ArgumentError, /transition/)
+    end
+  end
+
+  describe "#modal_path_back" do
+    it "defaults to one step" do
+      out = builder.modal_path_back.to_s
+      expect(out).to include('action="modal_path_back"')
+      expect(out).to include('data-steps="1"')
+    end
+
+    it "accepts a custom steps value" do
+      out = builder.modal_path_back(steps: 3).to_s
+      expect(out).to include('data-steps="3"')
+    end
+
+    it "rejects non-positive steps" do
+      expect { builder.modal_path_back(steps: 0) }.to raise_error(ArgumentError, /steps/)
+      expect { builder.modal_path_back(steps: -1) }.to raise_error(ArgumentError, /steps/)
+    end
+
+    it "rejects unknown transitions" do
+      expect { builder.modal_path_back(transition: :warp) }
+        .to raise_error(ArgumentError, /transition/)
+    end
+  end
 end

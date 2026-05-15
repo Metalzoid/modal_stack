@@ -83,6 +83,17 @@ export class ModalStackController extends Controller {
     return this.orchestrator.prefetch(url);
   }
 
+  // Stimulus action — wire up via data-action="click->modal-stack#pathBack"
+  // on any button/link inside a modal panel.
+  pathBack(event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    const steps = readSteps(event);
+    return this.orchestrator.pathBack({ steps });
+  }
+
   #topLayer() {
     const layers = this.orchestrator.layers;
     return layers[layers.length - 1] ?? null;
@@ -136,6 +147,21 @@ export class ModalStackController extends Controller {
     StreamActions.modal_close_all = guarded("modal_close_all", function (orch) {
       return orch.closeAll();
     });
+
+    StreamActions.modal_path_to = guarded("modal_path_to", function (orch) {
+      return orch.pathTo(frameFromStreamElement(this), {
+        fragment: this.templateContent.cloneNode(true),
+        transition: this.dataset.transition || null,
+      });
+    });
+
+    StreamActions.modal_path_back = guarded("modal_path_back", function (orch) {
+      const steps = parsePositiveInt(this.dataset.steps, 1);
+      return orch.pathBack({
+        steps,
+        transition: this.dataset.transition || null,
+      });
+    });
   }
 }
 
@@ -185,4 +211,28 @@ function generateLayerId() {
     return crypto.randomUUID();
   }
   return `ms-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function frameFromStreamElement(el) {
+  return {
+    url: el.dataset.url || window.location.href,
+    stale: el.dataset.stale === "true" || el.dataset.stale === "1",
+  };
+}
+
+function parsePositiveInt(raw, fallback) {
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+// Steps for pathBack come from either Stimulus action params
+// (data-modal-stack-steps-param) or a plain data-steps attribute on
+// the action target, e.g. <button data-modal-stack-steps-param="2">.
+function readSteps(event) {
+  const params = event?.params;
+  if (params && Number.isFinite(params.steps) && params.steps > 0) {
+    return params.steps;
+  }
+  const target = event?.currentTarget ?? event?.target;
+  return parsePositiveInt(target?.dataset?.steps, 1);
 }

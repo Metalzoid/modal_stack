@@ -56,6 +56,15 @@ ModalStack.configure do |config|
   #   :silent — drop the push, no warning
   config.max_depth_strategy = :warn
 
+  # Default transition between frames in a modal path (the wizard-style
+  # `modal_path_to` / `modal_path_back` flow). Override per call with
+  # `transition:` on the stream action when a specific step needs a
+  # different feel.
+  #   :slide — directional, current frame slides out, next slides in
+  #   :fade  — cross-fade, no direction
+  #   :none  — instantaneous swap
+  config.default_path_transition = :slide
+
   # Replace `data-turbo-confirm` window.confirm with a modal_stack
   # confirmation layer (cf. RFC §15.Q7). Off by default — opt-in.
   config.replace_turbo_confirm = false

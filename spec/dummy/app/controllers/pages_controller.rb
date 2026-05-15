@@ -22,4 +22,30 @@ class PagesController < ApplicationController
       end
     end
   end
+
+  def path_step_a; end
+  def path_step_b; end
+  def path_step_c; end
+
+  def path_to_b
+    respond_to do |format|
+      format.turbo_stream do
+        render turbo_stream: turbo_stream.modal_path_to(
+          template: "pages/path_step_b",
+          url: path_wizard_step_b_path
+        )
+      end
+    end
+  end
+
+  def path_to_c
+    respond_to do |format|
+      format.turbo_stream do
+        render turbo_stream: turbo_stream.modal_path_to(
+          template: "pages/path_step_c",
+          url: path_wizard_step_c_path
+        )
+      end
+    end
+  end
 end

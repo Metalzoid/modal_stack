@@ -113,6 +113,20 @@ RSpec.describe ModalStack::Configuration do
       config.max_depth_strategy = "raise"
       expect(config.max_depth_strategy).to eq(:raise)
     end
+
+    it "defaults default_path_transition to :slide" do
+      expect(config.default_path_transition).to eq(:slide)
+    end
+
+    it "rejects unknown default_path_transition" do
+      expect { config.default_path_transition = :warp }
+        .to raise_error(ArgumentError, /default_path_transition/)
+    end
+
+    it "accepts a string and coerces default_path_transition" do
+      config.default_path_transition = "fade"
+      expect(config.default_path_transition).to eq(:fade)
+    end
   end
 
   describe "ModalStack.configure" do

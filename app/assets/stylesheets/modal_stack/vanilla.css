@@ -5,7 +5,7 @@
  * --modal-stack-* tokens on :root to retheme.
  *
  * Variants:    [data-variant="modal" | "drawer" | "bottom_sheet" | "confirmation"]
- * Drawer side: [data-side="left" | "right"]
+ * Drawer side: [data-side="left" | "right" | "top" | "bottom"]
  * Sizes:       [data-modal-stack-size="sm" | "md" | "lg" | "xl"]
  */
 
@@ -27,6 +27,7 @@
   --modal-stack-size-lg: 720px;
   --modal-stack-size-xl: 960px;
   --modal-stack-drawer-width: 400px;
+  --modal-stack-drawer-height: 22rem; /* 352px */
 }
 
 body[data-modal-stack-locked] {
@@ -89,6 +90,7 @@ body[data-modal-stack-locked] {
   max-width: 92vw;
   max-height: min(85vh, 720px);
   overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--modal-stack-bg);
   color: var(--modal-stack-fg);
   border-radius: var(--modal-stack-radius);
@@ -109,7 +111,7 @@ body[data-modal-stack-locked] {
 
 [data-modal-stack-target="layer"][data-leaving] {
   opacity: 0;
-  transform: translate(-50%, -56%) scale(0.97);
+  transform: translate(-50%, -44%) scale(0.97);
   pointer-events: none;
 }
 
@@ -135,7 +137,14 @@ body[data-modal-stack-locked] {
 }
 
 [data-modal-stack-target="layer"][data-variant="drawer"] {
+  left: 0;
   top: 0;
+  max-width: 100vw;
+  max-height: 100vh;
+}
+
+[data-modal-stack-target="layer"][data-variant="drawer"][data-side="right"],
+[data-modal-stack-target="layer"][data-variant="drawer"][data-side="left"] {
   height: 100vh;
   max-height: none;
   width: var(--modal-stack-drawer-width);
@@ -155,6 +164,30 @@ body[data-modal-stack-locked] {
   border-radius: 0 var(--modal-stack-radius) var(--modal-stack-radius) 0;
 }
 
+[data-modal-stack-target="layer"][data-variant="drawer"][data-side="top"] {
+  left: 0;
+  top: 0;
+  width: 100vw;
+  max-width: none;
+  height: var(--modal-stack-drawer-height);
+  max-height: 85vh;
+  transform: translateY(0);
+  border-radius: 0 0 var(--modal-stack-radius) var(--modal-stack-radius);
+}
+
+[data-modal-stack-target="layer"][data-variant="drawer"][data-side="bottom"] {
+  left: 0;
+  top: auto;
+  bottom: 0;
+  width: 100vw;
+  max-width: none;
+  height: var(--modal-stack-drawer-height);
+  max-height: 85vh;
+  transform: translateY(0);
+  border-radius: var(--modal-stack-radius) var(--modal-stack-radius) 0 0;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
 @starting-style {
   [data-modal-stack-target="layer"][data-variant="drawer"][data-side="right"] {
     opacity: 0;
@@ -163,6 +196,14 @@ body[data-modal-stack-locked] {
   [data-modal-stack-target="layer"][data-variant="drawer"][data-side="left"] {
     opacity: 0;
     transform: translateX(-100%);
+  }
+  [data-modal-stack-target="layer"][data-variant="drawer"][data-side="top"] {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  [data-modal-stack-target="layer"][data-variant="drawer"][data-side="bottom"] {
+    opacity: 0;
+    transform: translateY(100%);
   }
 }
 
@@ -176,6 +217,16 @@ body[data-modal-stack-locked] {
   transform: translateX(-100%);
 }
 
+[data-modal-stack-target="layer"][data-variant="drawer"][data-side="top"][data-leaving] {
+  opacity: 0;
+  transform: translateY(-100%);
+}
+
+[data-modal-stack-target="layer"][data-variant="drawer"][data-side="bottom"][data-leaving] {
+  opacity: 0;
+  transform: translateY(100%);
+}
+
 [data-modal-stack-target="layer"][data-variant="bottom_sheet"] {
   top: auto;
   bottom: 0;
@@ -185,6 +236,7 @@ body[data-modal-stack-locked] {
   transform: translate(0, 0);
   border-radius: var(--modal-stack-radius) var(--modal-stack-radius) 0 0;
   max-height: 90vh;
+  padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
 @starting-style {
@@ -209,10 +261,76 @@ body[data-modal-stack-locked] {
   gap: 12px;
 }
 
+/* Path frames live inside the layer as transparent wrappers. Switching
+   to `display: contents` keeps the wrapper layout-invisible so adding
+   the modal_path feature doesn't change visuals for layers that never
+   navigate forward. Frame-level CSS transitions (slide / fade) can hook
+   on [data-modal-stack-frame][data-transition][data-direction]. */
+[data-modal-stack-frame] {
+  display: contents;
+}
+
+/* Frame transitions — the JS runtime sets [data-transition] + [data-direction]
+   on new frame wrappers and removes them after the animation. While the
+   attribute is present, the frame is promoted from display:contents to a
+   block context so translate/opacity apply. The :has() rule clips the layer
+   so off-screen frames don't overflow the panel area. */
+
+[data-modal-stack-target="layer"]:has([data-modal-stack-frame][data-transition="slide"]),
+[data-modal-stack-target="layer"]:has([data-modal-stack-frame][data-transition="fade"]) {
+  overflow: hidden;
+}
+
+[data-modal-stack-frame][data-transition="slide"] {
+  display: block;
+  translate: 0 0;
+  transition: translate var(--modal-stack-duration) var(--modal-stack-ease);
+}
+
+[data-modal-stack-frame][data-transition="fade"] {
+  display: block;
+  opacity: 1;
+  transition: opacity var(--modal-stack-duration) var(--modal-stack-ease);
+}
+
+@starting-style {
+  [data-modal-stack-frame][data-transition="slide"][data-direction="forward"] {
+    translate: 100% 0;
+  }
+  [data-modal-stack-frame][data-transition="slide"][data-direction="back"] {
+    translate: -100% 0;
+  }
+  [data-modal-stack-frame][data-transition="fade"] {
+    opacity: 0;
+  }
+}
+
+.modal-stack__panel-back {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  align-self: start;
+  justify-self: start;
+}
+
+.modal-stack__panel-back:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 4px;
+  border-radius: 2px;
+}
+
+[data-modal-stack-target="layer"][data-frame-depth="1"] .modal-stack__panel-back {
+  display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   #modal-stack-root,
   #modal-stack-root::backdrop,
-  [data-modal-stack-target="layer"] {
+  [data-modal-stack-target="layer"],
+  [data-modal-stack-frame][data-transition] {
     transition-duration: 1ms !important;
   }
 }

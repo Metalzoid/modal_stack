@@ -82,16 +82,17 @@ browser-`back`-ing through nested confirmation steps — they break down.
 ## ✨ Features
 
 - 🪜 **Stack of N layers** — push modals on top of modals; the underlying ones become `inert` automatically.
+- 🛤️ **Path inside a layer** — `modal_path_to` / `modal_path_back` for wizards & flows: each step gets its own URL and history entry, browser-back walks frames one by one, the X button collapses the whole path in a single jump.
 - 🪟 **Native `<dialog>`** — focus trap, ESC, accessible roles for free.
 - 🔗 **Deep-linking** — the top of the stack lives in `window.location`. Bookmark it, share it, refresh it.
-- ↩️ **Browser back = pop** — one history entry per layer; `cmd`+`←` does what users expect.
-- 🎮 **Imperative Turbo Stream actions** — `turbo_stream.modal_push / modal_pop / modal_replace / modal_close_all` from anywhere.
-- 🎨 **Three CSS presets** — Tailwind, Bootstrap, vanilla. All driven by `--modal-stack-*` CSS variables for easy retheming.
-- 🪞 **Four variants** — `modal`, `drawer` (with side), `bottom_sheet`, `confirmation`.
+- ↩️ **Browser back = pop or step-back** — frame paths collapse to single history jumps when the layer closes.
+- 🎮 **Imperative Turbo Stream actions** — `turbo_stream.modal_push / modal_pop / modal_replace / modal_close_all / modal_path_to / modal_path_back` from anywhere.
+- 🎨 **Four CSS presets** — Tailwind v4, Tailwind v3, Bootstrap, vanilla. All driven by `--modal-stack-*` CSS variables for easy retheming. Frame transitions (`slide`, `fade`) are fully implemented in every preset via `@starting-style`.
+- 🪞 **Four variants** — `modal`, `drawer` (left/right/top/bottom), `bottom_sheet`, `confirmation`.
 - 📏 **Sizes & custom dimensions** — `:sm` / `:md` / `:lg` / `:xl`, or pass `width:` / `height:` strings (`"42rem"`, `"min(90vw, 56rem)"`).
 - 🔒 **Dismissible flag** — `dismissible: false` for confirmations users must answer.
 - ♿ **`prefers-reduced-motion`** — animations collapse to 1ms when the OS asks.
-- 🧪 **Capybara matchers** — `within_modal`, `have_modal_open`, `have_modal_stack(depth: 2)`, `close_modal`, `close_all_modals`.
+- 🧪 **Capybara matchers** — `within_modal`, `within_modal_frame`, `have_modal_open`, `have_modal_stack(depth: 2)`, `have_modal_frames(2)`, `close_modal`, `close_all_modals`.
 - ⚡ **Three asset pipelines** — Importmap (default), jsbundling, Sprockets.
 - 🧱 **Engine-based** — zero monkey-patching, pure Rails Engine + Stimulus + Turbo.
 
@@ -212,10 +213,11 @@ ModalStack.configure do |config|
   config.default_dismissible = true     # ESC + backdrop click close the layer
 
   # ─── Behavior ─────────────────────────────────────────────────────
-  config.max_depth              = 5     # hard cap on nested layers (nil to disable)
-  config.max_depth_strategy     = :warn # :warn | :raise | :silent
-  config.respect_reduced_motion = true  # honor prefers-reduced-motion
-  config.replace_turbo_confirm  = false # use modal_stack confirmations for data-turbo-confirm
+  config.max_depth              = 5      # hard cap on nested layers (nil to disable)
+  config.max_depth_strategy     = :warn  # :warn | :raise | :silent
+  config.default_path_transition = :slide # :slide | :fade | :none
+  config.respect_reduced_motion = true   # honor prefers-reduced-motion
+  config.replace_turbo_confirm  = false  # use modal_stack confirmations for data-turbo-confirm
 
   # ─── Wiring (rarely changed) ──────────────────────────────────────
   config.dialog_id                 = "modal-stack-root"
@@ -361,10 +363,12 @@ strings — they're applied as inline styles, taking precedence over `size:`:
 ### Wizards & multi-step flows
 
 For step-by-step flows inside a single layer (onboarding, multi-step forms),
-combine `modal_push` (for the initial open) with `modal_replace` carrying
-`history: :push` between steps. Each step gets its own URL and a real
-history entry, so browser-back returns to the previous step (not the page
-behind the wizard):
+use `modal_path_to` to advance and `modal_path_back` (or the
+`modal_back_link` helper) to step back. The current frame's HTML is cached
+in memory, so back-navigation is instant — no network round-trip — and
+each forward step pushes a real history entry, so browser-back walks the
+frames one by one. When the user closes the layer (X / ESC / backdrop /
+`modal_pop`), every frame's history entry collapses in a single jump.
 
 ```ruby
 class WizardController < ApplicationController
@@ -374,16 +378,47 @@ class WizardController < ApplicationController
     respond_to do |format|
       format.html # full-page render for deep-links
       format.turbo_stream do
-        render turbo_stream: turbo_stream.modal_replace(
+        render turbo_stream: turbo_stream.modal_path_to(
           template: "wizard/step_2",
-          history: :push,
           url: wizard_step_2_path
+          # transition: :fade        # :slide (default from config) | :fade | :none
+          # stale: true              # force a refetch when the user steps back here
         )
       end
     end
   end
 end
 ```
+
+```erb
+<%# wizard/step_2.html.erb %>
+<%= modal_stack_container(back: true) do %>
+  <h2>Step 2</h2>
+  <%# … form … %>
+
+  <%= modal_back_link "Back" %>
+  <%# or modal_back_link "Restart", steps: 99    # clamped at the first frame %>
+<% end %>
+```
+
+`back: true` on `modal_stack_container` injects a back-button slot —
+hidden by CSS at `[data-frame-depth="1"]`, visible from frame 2 onward.
+
+To force a refresh when the user steps back to a frame (e.g. its data is
+stale), either pass `stale: true` to `modal_path_to` or set the
+`X-Modal-Stack-Stale: true` header on the response. The runtime will
+refetch the URL instead of restoring from cache.
+
+> ⚠️ **`replaceTop` collapses path frames.** When the top layer has a
+> path and you call `turbo_stream.modal_replace`, the path is forgotten:
+> the layer is morphed back to a single frame and the surplus history
+> entries are walked back. Use `modal_path_back` if you want to step
+> back, `modal_replace` if you want to swap the entire layer.
+
+If you'd rather not keep a back-history (e.g. each step replaces the
+previous and there's no going back), use the older `modal_replace`
+mechanism with `history: :push` instead — the URL still changes per
+step, but no in-memory cache is kept and `replaceTop` is the right tool.
 
 ### Stack depth & inertness
 
@@ -430,6 +465,7 @@ ModalStack.reset_configuration!         # test-fixture helper
 | `default_classes`            | Hash    | `{ ... }`                | Hash of extra CSS class strings keyed by `:modal_panel`, `:drawer_panel`, `:bottom_sheet_panel`, `:confirmation_panel`. Useful for adding utility classes on top of the chosen preset. |
 | `max_depth`                  | Integer | `5`                      | Hard cap on stack depth. Coerced from strings; set to `nil` to disable. Validated. |
 | `max_depth_strategy`         | Symbol  | `:warn`                  | One of `:warn`, `:raise`, `:silent`. See [Stack depth & inertness](#stack-depth--inertness). Validated. |
+| `default_path_transition`    | Symbol  | `:slide`                 | Default transition for `modal_path_to` / `modal_path_back` when no per-call `transition:` is given. One of `:slide`, `:fade`, `:none`. Validated. |
 | `request_header`             | String  | `"X-Modal-Stack-Request"` | HTTP header used by the JS runtime to signal stack-originated fetches. Read by `modal_stack_request?`. |
 | `dialog_id`                  | String  | `"modal-stack-root"`     | The id of the singleton `<dialog>`. Override only on name collision. |
 | `stack_root_data_attribute`  | String  | `"modal-stack"`          | The Stimulus `data-controller` value attached to the `<dialog>`. |
@@ -446,7 +482,8 @@ Injected into `ActionView::Base` by the engine — available in every view.
 | Helper                                            | Description |
 | ------------------------------------------------- | ----------- |
 | `modal_link_to(name, options, html_options)`      | Renders a `link_to` wired to push a layer when clicked. Accepts the modal options (`as:`, `side:`, `size:`, `width:`, `height:`, `dismissible:`) on top of standard `link_to` arguments. Falls back to plain `link_to` for Hotwire Native requests. |
-| `modal_stack_container(size:, variant:, side:, width:, height:, dismissible:, html: {}) { ... }` | Wraps a panel view with the markup the JS runtime expects. Renders a `<div>` carrying the size/variant/dismissible/dimension data attributes. |
+| `modal_stack_container(size:, variant:, side:, width:, height:, dismissible:, back:, transition:, html: {}) { ... }` | Wraps a panel view with the markup the JS runtime expects. `back: true` injects a back-button slot wired to `modal-stack#pathBack` (hidden by CSS at the first frame); `transition:` writes `data-modal-stack-transition` for host CSS hooks. |
+| `modal_back_link(name = nil, **opts) { ... }`     | Renders a `<button>` wired to the `modal-stack-back-link` Stimulus controller. Pass `steps:` (default `1`) to walk back multiple frames in a single click — clamped at the first frame, never closes the layer. Block form supported for custom markup (e.g. `<%= modal_back_link(class: "btn") { "← Back" } %>`). |
 | `modal_stack_stylesheet_link_tag(**options)`      | Emits `<link rel="stylesheet">` for the configured preset (`modal_stack/tailwind_v4.css`, etc.). Returns an empty SafeBuffer when `css_provider = :none`. |
 | `modal_stack_dialog_tag(**html_options)`          | Emits the singleton `<dialog id="modal-stack-root" data-controller="modal-stack">`. Drop just before `</body>`. |
 | `modal_stack_javascript_tag`                      | Reserved hook for layouts; currently a no-op (JS is loaded via your bundler / importmap). |
@@ -472,11 +509,21 @@ options as Turbo's built-in stream actions (`partial:`, `template:`,
 | ----------------------------------------------------------- | ------- |
 | `modal_push(content = nil, **opts, &block)`                 | `variant:`, `dismissible:`, `url:`, `side:`, `size:`, `width:`, `height:`, plus any rendering options |
 | `modal_pop`                                                 | — |
-| `modal_replace(content = nil, **opts, &block)`              | All `modal_push` options plus `history:` (`:replace` *(default)* or `:push`) and `layer_id:` |
+| `modal_replace(content = nil, **opts, &block)`              | All `modal_push` options plus `history:` (`:replace` *(default)* or `:push`) and `layer_id:`. **Resets the path to a single frame** when the top layer has multiple frames. |
 | `modal_close_all`                                           | — |
+| `modal_path_to(content = nil, **opts, &block)`              | `url:`, `transition:` (`:slide` *(default from config)* / `:fade` / `:none`), `stale:` (when true, runtime refetches on back), `layer_id:`, plus any rendering options. |
+| `modal_path_back(steps: 1, transition: nil)`                | `steps:` (positive integer, clamped at the first frame), `transition:` override. |
 
 `history: :push` raises `ArgumentError` if given any value other than
-`:push` or `:replace`.
+`:push` or `:replace`. Unknown transitions on `modal_path_to` /
+`modal_path_back` raise `ArgumentError` as well.
+
+> 💡 **Stale frames.** When you want a frame to refetch on back instead
+> of restoring from the in-memory cache, either pass `stale: true` to
+> `modal_path_to` or set the `X-Modal-Stack-Stale: true` header on the
+> response. Useful when the frame's data is expected to change between
+> the forward visit and the back visit (e.g. a list that the user
+> mutated downstream).
 
 ### Layer DOM contract
 
@@ -489,11 +536,28 @@ Each pushed layer is a `<div>` inside the dialog with:
      data-variant="drawer"
      data-side="right"
      data-dismissible="true"
+     data-frame-index="1"
+     data-frame-depth="2"
      data-modal-stack-size="lg"
      data-modal-stack-width="42rem"  style="width: 42rem;">
-  <!-- panel content -->
+  <div data-modal-stack-frame
+       data-frame-index="1"
+       data-transition="slide"
+       data-direction="forward">
+    <!-- panel content -->
+  </div>
 </div>
 ```
+
+The frame wrapper sits between the layer and the panel content. It
+defaults to `display: contents` so it is invisible to host CSS. When a
+transition is requested, the runtime sets `[data-transition]` and
+`[data-direction]` on the entering frame — the shipped presets pick
+these up via `@starting-style` rules (`slide`: translate from right/left,
+`fade`: opacity 0→1) and restore `overflow-y: auto` on the layer once
+`transitionend` fires. `data-frame-depth="N"` on the layer reflects the
+current path length — `1` for layers without a path, `N` for layers `N`
+frames deep.
 
 Underlying layers receive `inert`. A layer being unmounted gets
 `data-leaving=""` for the duration of the exit transition (capped at
@@ -501,12 +565,13 @@ Underlying layers receive `inert`. A layer being unmounted gets
 
 ### Stimulus controllers
 
-Both controllers are registered via `installModalStack(application)`.
+All three controllers are registered via `installModalStack(application)`.
 
 | Identifier             | Role |
 | ---------------------- | ---- |
-| `modal-stack`          | Bound to the singleton `<dialog>`. Wires popstate / cancel / backdrop-click listeners, registers the `Turbo.StreamActions`, hosts the Orchestrator. |
+| `modal-stack`          | Bound to the singleton `<dialog>`. Wires popstate / cancel / backdrop-click listeners, registers the `Turbo.StreamActions`, hosts the Orchestrator. Also exposes a public `pathBack` action — wire it on any element via `data-action="click->modal-stack#pathBack"` (with optional `data-modal-stack-steps-param="2"`). |
 | `modal-stack-link`     | Attached to elements rendered by `modal_link_to`. On `click`, finds the `modal-stack` controller and calls `push({ url, variant, … })` from the element's data attributes. |
+| `modal-stack-back-link`| Attached to elements rendered by `modal_back_link`. On `click`, calls `orchestrator.pathBack({ steps })` — never closes the layer; clamps at the first frame. |
 
 ### JS runtime
 
@@ -516,11 +581,13 @@ The package exports a small functional core + a browser adapter:
 import {
   // pure reducer — no IO, no DOM
   createStack, push, pop, replaceTop, closeAll, handlePopstate,
-  snapshot, restore, topLayer, VARIANTS, ModalStackDepthError,
+  pathTo, pathBack,
+  snapshot, restore, topLayer, VARIANTS, TRANSITIONS,
+  ModalStackDepthError,
 
   // orchestrator + browser runtime
   Orchestrator, BrowserRuntime,
-  FRAGMENT_HEADER, SNAPSHOT_KEY, SCROLLBAR_WIDTH_VAR,
+  FRAGMENT_HEADER, STALE_HEADER, SNAPSHOT_KEY, SCROLLBAR_WIDTH_VAR,
 } from "modal_stack"
 
 import { install } from "modal_stack/install"
@@ -532,12 +599,13 @@ side-effect-free and 100% covered; the browser adapter is the only
 file that touches `<dialog>`, `history`, `fetch`, and `sessionStorage`.
 
 The reducer's command type vocabulary (`mountLayer`, `morphTopLayer`,
-`unmountTopLayer`, `unmountAllLayers`, `showDialog`, `closeDialog`,
-`lockScroll`, `unlockScroll`, `inertLayer`, `pushHistory`,
-`replaceHistory`, `historyBack`, `rebuildFromSnapshot`, `persistSnapshot`,
-`clearSnapshot`) forms the contract between `state.js` and any runtime —
-swap in a custom adapter (e.g. for Hotwire Native) by implementing one
-method per command name.
+`unmountTopLayer`, `unmountAllLayers`, `mountFrame`, `unmountFrame`,
+`clearFrameCache`, `showDialog`, `closeDialog`, `lockScroll`,
+`unlockScroll`, `inertLayer`, `pushHistory`, `replaceHistory`,
+`historyBack`, `rebuildFromSnapshot`, `persistSnapshot`, `clearSnapshot`)
+forms the contract between `state.js` and any runtime — swap in a
+custom adapter (e.g. for Hotwire Native) by implementing one method
+per command name.
 
 #### Custom events
 
@@ -546,7 +614,7 @@ The `<dialog>` emits two `CustomEvent`s that bubble to `document`:
 | Event                  | `detail`                                    | Fired when |
 | ---------------------- | ------------------------------------------- | ---------- |
 | `modal_stack:ready`    | `{ stackId }`                               | The Stimulus controller has connected and the orchestrator is ready. |
-| `modal_stack:error`    | `{ action, error }`                         | A Turbo Stream action (`modal_push`/`modal_pop`/`modal_replace`/`modal_close_all`) threw or rejected. The page is not crashed; surface UI feedback in the listener. |
+| `modal_stack:error`    | `{ action, error }`                         | A Turbo Stream action (`modal_push`/`modal_pop`/`modal_replace`/`modal_close_all`/`modal_path_to`/`modal_path_back`) threw or rejected. The page is not crashed; surface UI feedback in the listener. |
 
 ```js
 document.addEventListener("modal_stack:error", (event) => {
@@ -579,10 +647,12 @@ specs. For Minitest, `require "modal_stack/capybara/minitest"`.
 | Helper / matcher                  | Description |
 | --------------------------------- | ----------- |
 | `within_modal(depth: nil) { ... }`| Scopes Capybara matchers to a layer. Defaults to the topmost; `depth: 1` is the bottom. Raises `Capybara::ElementNotFound` when no such layer exists. |
+| `within_modal_frame(depth: nil) { ... }` | Scopes Capybara matchers to the **current** frame inside a layer (the one that's not animating out). Useful when a path is in flight. |
 | `have_modal_open`                 | Matcher: passes when the dialog has `[open]`. |
 | `have_no_modal_open`              | Negation. |
 | `have_modal_stack(depth: nil)`    | Matcher: asserts the live (non-leaving) layer count. |
 | `have_no_modal_stack`             | Negation. |
+| `have_modal_frames(count)`        | Matcher: asserts the top layer's path has `count` frames. Layers without a path read as `1`. |
 | `close_modal`                     | Sends `ESC` to the dialog. Honors `dismissible: false` (the layer stays). |
 | `close_all_modals(max: 16)`       | Pops every layer by sending `ESC` repeatedly. |
 | `modal_stack_depth`               | Reads the current depth from the live DOM. |
@@ -625,6 +695,15 @@ Four opinionated stylesheets ship with the gem. Pick one with
 | `:bootstrap`    | `app/assets/stylesheets/modal_stack/bootstrap.css`    | Picks up Bootstrap 5 CSS variables |
 | `:vanilla`      | `app/assets/stylesheets/modal_stack/vanilla.css`      | Framework-free, neutral defaults |
 | `:none`         | —                                                     | Bring your own CSS |
+
+All four presets share the following capabilities:
+
+- **Frame transitions** — `slide` (horizontal translate via `@starting-style`) and `fade` (opacity) are both fully implemented. The entering frame animates in; the layer clips off-screen frames with `overflow: hidden` for the duration, then restores `overflow-y: auto`.
+- **All four drawer sides** — `left`, `right`, `top`, `bottom` with matching entry/exit animations.
+- **Mobile scroll containment** — `overscroll-behavior: contain` prevents scroll chaining when modal content reaches its boundary.
+- **Safe-area inset** — `bottom_sheet` and `drawer[data-side="bottom"]` apply `env(safe-area-inset-bottom)` padding.
+- **Keyboard focus ring** — `.modal-stack__panel-back` has a `:focus-visible` outline.
+- **Reduced-motion** — frame transition durations collapse to `1ms` alongside layer transitions.
 
 All presets are driven by the same `--modal-stack-*` CSS variables.
 Override on `:root` to retheme without touching the gem:
@@ -684,9 +763,11 @@ provided by the host app).
 
 - **Native `<dialog>`** — modern browsers handle focus trap, ESC, and `aria-modal` for free.
 - **Inertness** — underlying layers in a stack receive `inert`, so screen-readers and keyboard navigation skip them.
-- **Reduced motion** — when `prefers-reduced-motion: reduce` is set, presets collapse transitions to 1ms.
+- **Reduced motion** — when `prefers-reduced-motion: reduce` is set, presets collapse all transitions (layer and frame) to 1 ms.
 - **Focus restoration** — when a layer is popped, focus returns to the trigger element (per `<dialog>` semantics).
-- **Body scroll lock** — `<body data-modal-stack-locked>` prevents background scroll while the dialog is open.
+- **Back-button focus ring** — `.modal-stack__panel-back` renders a `:focus-visible` outline on keyboard focus in every preset.
+- **Body scroll lock** — `<body data-modal-stack-locked>` prevents background scroll while the dialog is open; `overscroll-behavior: contain` on layers additionally blocks scroll chaining (pull-to-refresh, iOS bounce) when modal content is scrolled to its boundary.
+- **Safe-area padding** — `bottom_sheet` and bottom drawers apply `env(safe-area-inset-bottom)` so content is never hidden under the iOS home indicator.
 
 ---
 
