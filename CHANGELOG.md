@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-05-15
+
+### Added
+- **URL never changes** — the browser address bar stays on the originating URL when modals open. Each modal/frame still pushes a phantom `history.pushState` entry so the back button closes layers one by one, but the URL itself does not change.
+- **Reload restoration** — the current modal stack (layers + active wizard step) is persisted to `sessionStorage` and fully restored on page reload. Single-step modals restore via a GET re-fetch; POST-only wizard steps are restored from their cached HTML so they never 404.
+- **`modal_stack:frame-leave` / `modal_stack:frame-enter` custom events** — fired on the `<dialog>` (bubbles to `document`) when a path frame transitions in or out. Detail: `{ layerId, frameIndex, direction: "forward" | "back" }`. Use these to save and restore form field values across wizard steps without gem involvement (see README for example Stimulus controller).
+- **`data-turbo-permanent`** on the dialog element by default — prevents Turbo Drive from destroying and recreating the controller on page-restoration renders, eliminating a class of double-listener bugs and mid-animation state loss.
+
+### Fixed
+- **No Turbo page-restoration on modal close** — our `popstate` listener is now registered in capture phase and calls `event.stopImmediatePropagation()` for popstates we triggered ourselves. Turbo's bubble-phase handler never sees them, so no restoration visit, no loading bar, and no body replacement on close.
+- **Scroll lock survives Turbo renders** — `turbo:before-cache` strips `data-modal-stack-locked` from `<body>` before Turbo caches a snapshot; `turbo:render` handler in the controller calls `unlockScroll()` when `depth === 0`, neutralising any cached-snapshot restoration that re-applies the attribute.
+- **Double-pop on concurrent close handlers** — `_onCancel` and `_onBackdropClick` now return early if `!this.element.open`, preventing a second `pop()` call when Stimulus double-connects the controller (which registers two listeners on the same dialog).
+- **Multiple queued `historyBack` calls** — replaced the boolean suppress flag with a counter (`#suppressTurboVisitCount`) so N back-steps each cancel their own Turbo restoration visit independently, with a 1-second safety-valve reset.
+- **`turbo:before-cache` cleanup** — `--modal-stack-scrollbar-width` CSS variable is also stripped before caching so Turbo snapshots are always taken in the unlocked baseline state.
+
 ## [0.4.1] - 2026-05-14
 
 ### Added

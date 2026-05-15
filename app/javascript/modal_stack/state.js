@@ -371,11 +371,13 @@ export function pop(state) {
   const newTop = newLayers[newLayers.length - 1] ?? null;
   const commands = [];
   if (newTop) {
+    // Persist early so a page reload during the animation restores the
+    // correct (already-popped) stack rather than the stale one.
+    commands.push({ type: "persistSnapshot" });
     commands.push({ type: "unmountTopLayer" });
     commands.push({ type: "clearFrameCache", layerId: popped.id });
     commands.push({ type: "historyBack", n: framesToWalkBack });
     commands.push({ type: "inertLayer", layerId: newTop.id, value: false });
-    commands.push({ type: "persistSnapshot" });
   } else {
     // closeDialog first so the dialog's exit transition (opacity +
     // backdrop background + display/overlay allow-discrete) starts
@@ -385,11 +387,13 @@ export function pop(state) {
     // fade kicks in for *another* 220ms — visually the backdrop fades
     // after the modal is gone.
     commands.push({ type: "closeDialog" });
+    // Clear early so a page reload during the animation does not restore
+    // the modal that is already being dismissed.
+    commands.push({ type: "clearSnapshot" });
     commands.push({ type: "unmountTopLayer" });
     commands.push({ type: "clearFrameCache", layerId: popped.id });
     commands.push({ type: "historyBack", n: framesToWalkBack });
     commands.push({ type: "unlockScroll" });
-    commands.push({ type: "clearSnapshot" });
   }
   return { state: { ...state, layers: newLayers }, commands };
 }
@@ -480,13 +484,15 @@ export function closeAll(state) {
     state: { ...state, layers: Object.freeze([]) },
     // closeDialog first so the dialog's exit transition runs in
     // parallel with the layers' [data-leaving] transitions.
+    // clearSnapshot comes before unmountAllLayers so a reload during
+    // the animation does not restore a stack that is already closing.
     commands: [
       { type: "closeDialog" },
+      { type: "clearSnapshot" },
       { type: "unmountAllLayers" },
       ...cacheClears,
       { type: "unlockScroll" },
       { type: "historyBack", n },
-      { type: "clearSnapshot" },
     ],
   };
 }
@@ -511,13 +517,13 @@ export function handlePopstate(state, { historyState, locationHref }) {
     }));
     return {
       state: { ...state, layers: Object.freeze([]) },
-      // closeDialog first — see closeAll() for rationale.
+      // closeDialog and clearSnapshot first — see closeAll() for rationale.
       commands: [
         { type: "closeDialog" },
+        { type: "clearSnapshot" },
         { type: "unmountAllLayers" },
         ...cacheClears,
         { type: "unlockScroll" },
-        { type: "clearSnapshot" },
       ],
     };
   }
@@ -532,10 +538,19 @@ export function handlePopstate(state, { historyState, locationHref }) {
     const newLayers = Object.freeze(state.layers.slice(0, targetDepth));
     const newTop = newLayers[newLayers.length - 1] ?? null;
     const commands = [];
-    // When popping back to the root via popstate, fire closeDialog
-    // first so the dialog's exit transition runs alongside the
-    // sequential unmountTopLayer cascade.
-    if (!newTop) commands.push({ type: "closeDialog" });
+    if (newTop) {
+      // Persist before animation so a reload during the transition
+      // restores the correct remaining stack.
+      commands.push({ type: "persistSnapshot" });
+    } else {
+      // When popping back to the root via popstate, fire closeDialog
+      // first so the dialog's exit transition runs alongside the
+      // sequential unmountTopLayer cascade.
+      commands.push({ type: "closeDialog" });
+      // Clear before animation so a reload during the transition does
+      // not restore the stack that is already being dismissed.
+      commands.push({ type: "clearSnapshot" });
+    }
     for (let i = 0; i < droppedLayers.length; i++) {
       commands.push({ type: "unmountTopLayer" });
     }
@@ -544,10 +559,8 @@ export function handlePopstate(state, { historyState, locationHref }) {
     }
     if (newTop) {
       commands.push({ type: "inertLayer", layerId: newTop.id, value: false });
-      commands.push({ type: "persistSnapshot" });
     } else {
       commands.push({ type: "unlockScroll" });
-      commands.push({ type: "clearSnapshot" });
     }
     return { state: { ...state, layers: newLayers }, commands };
   }

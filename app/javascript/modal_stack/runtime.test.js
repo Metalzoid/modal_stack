@@ -97,20 +97,21 @@ describe("snapshot storage", () => {
 });
 
 describe("history wiring", () => {
-  test("pushHistory / replaceHistory / historyBack delegate to history", () => {
+  test("pushHistory / replaceHistory always use current location.href, ignoring the modal url", () => {
     const calls = [];
     const history = {
       pushState: (s, t, u) => calls.push(["push", s, t, u]),
       replaceState: (s, t, u) => calls.push(["replace", s, t, u]),
       go: (n) => calls.push(["go", n]),
     };
-    const rt = new BrowserRuntime(noopRuntimeArgs({ history }));
-    rt.pushHistory({ url: "/a", historyState: { x: 1 } });
-    rt.replaceHistory({ url: "/b", historyState: { y: 2 } });
+    const location = { href: "http://example.com/origin" };
+    const rt = new BrowserRuntime(noopRuntimeArgs({ history, location }));
+    rt.pushHistory({ url: "/modal-a", historyState: { x: 1 } });
+    rt.replaceHistory({ url: "/modal-b", historyState: { y: 2 } });
     rt.historyBack({ n: 3 });
     expect(calls).toEqual([
-      ["push", { x: 1 }, "", "/a"],
-      ["replace", { y: 2 }, "", "/b"],
+      ["push", { x: 1 }, "", "http://example.com/origin"],
+      ["replace", { y: 2 }, "", "http://example.com/origin"],
       ["go", -3],
     ]);
   });

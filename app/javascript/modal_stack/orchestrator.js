@@ -71,6 +71,10 @@ export class Orchestrator {
     return this.state.layers.length;
   }
 
+  get expectedPopstates() {
+    return this.#expectedPopstates;
+  }
+
   /**
    * Push a layer. When `html`/`fragment` are absent, the orchestrator
    * pre-fetches the URL so `mountLayer` is a sync DOM append (no flash).
@@ -194,6 +198,18 @@ export class Orchestrator {
     this.#fragmentCache.clear();
   }
 
+  // Seed the fragment cache with a known fragment for a URL. Used during
+  // snapshot restore to ensure forward re-navigation to a POST-only wizard
+  // step reuses the cached HTML rather than attempting a failing GET fetch.
+  setFragmentCache(url, fragment) {
+    if (!url || !fragment) return;
+    this.#fragmentCache.set(url, {
+      fragment: cloneFragment(fragment),
+      stale: false,
+      ts: Date.now(),
+    });
+  }
+
   // Warm the prefetch cache for `url` without mutating the stack. Safe
   // to call repeatedly for the same URL (deduped via #inflight) and from
   // hover/focus handlers; failures are swallowed since this is best-effort.
@@ -217,9 +233,7 @@ export class Orchestrator {
     // A popstate arriving while we have prefetches in flight means the
     // user navigated away from any URL we were preloading; drop them.
     this.#invalidatePrefetch();
-    return this.#dispatch(
-      handlePopstate(this.state, { historyState, locationHref }),
-    );
+    return this.#dispatch(handlePopstate(this.state, { historyState, locationHref }));
   }
 
   async #dispatch({ state, commands }, payload = {}) {

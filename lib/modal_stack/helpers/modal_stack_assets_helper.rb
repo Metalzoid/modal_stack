@@ -39,6 +39,12 @@ module ModalStack
         data = existing.merge(controller: controllers)
         data[:modal_stack_max_depth_value] ||= config.max_depth if config.max_depth
         data[:modal_stack_max_depth_strategy_value] ||= config.max_depth_strategy.to_s
+        # Preserve dialog across Turbo Drive page-restores (which fire on
+        # popstate when the destination history entry was set by Turbo). Without
+        # this, the Stimulus controller disconnects mid-close, the runtime is
+        # rebuilt from scratch, and any in-flight state (animations, focused
+        # element, click-event propagation) is lost.
+        data[:turbo_permanent] = "" unless data.key?(:turbo_permanent)
         data
       end
 

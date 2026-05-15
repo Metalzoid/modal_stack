@@ -10,7 +10,7 @@ RSpec.describe "Modal push", type: :system, js: true do
     expect(page).to have_modal_open
     expect(page).to have_modal_stack(depth: 1)
     within_modal { expect(page).to have_css("#modal-title", text: "Edit thing") }
-    expect(page).to have_current_path("/modal_demo")
+    expect(page).to have_current_path("/")
   end
 
   it "stacks a second layer on top while keeping the first inert" do

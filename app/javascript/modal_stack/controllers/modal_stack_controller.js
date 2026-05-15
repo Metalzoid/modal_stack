@@ -1,6 +1,7 @@
 import { Controller } from "@hotwired/stimulus";
 import { Orchestrator } from "../orchestrator.js";
 import { BrowserRuntime } from "../runtime.js";
+import { restore } from "../state.js";
 
 export class ModalStackController extends Controller {
   static values = {
@@ -10,33 +11,56 @@ export class ModalStackController extends Controller {
     maxDepthStrategy: { type: String, default: "warn" },
   };
 
+  #restoring = false;
+
   connect() {
-    const stackId = this.stackIdValue || generateLayerId();
     const baseUrl = this.baseUrlValue || window.location.href;
 
     this.runtime = new BrowserRuntime({ dialog: this.element });
-    const snapshot = this.runtime.readSnapshot();
+    // Restore frame HTML cache before reading snapshot so wizard frames
+    // saved in sessionStorage are available during #restoreSnapshot.
+    this.runtime.restoreFrameCacheFromStorage();
+    const savedSnapshot = this.runtime.readSnapshot();
+
+    // Peek at the snapshot (without stackId filter) to reuse the saved
+    // stackId across page reloads — otherwise a randomly generated stackId
+    // would never match the one saved in sessionStorage.
+    const snapshotState = savedSnapshot ? restore(savedSnapshot) : null;
+    const stackId =
+      this.stackIdValue || snapshotState?.stackId || generateLayerId();
 
     this.orchestrator = new Orchestrator({
       runtime: this.runtime,
       stackId,
       baseUrl,
-      restoreFrom: snapshot,
+      // Restoration is handled below via push() so each layer gets a
+      // phantom history entry and the back button closes them one by one.
+      restoreFrom: null,
       // Stimulus Number values default to 0, but state.js treats null as
       // "no cap" — so map 0/missing to null here.
       maxDepth: this.maxDepthValue > 0 ? this.maxDepthValue : null,
       maxDepthStrategy: this.maxDepthStrategyValue || "warn",
     });
 
-    this._onPopstate = (event) =>
+    this._onPopstate = (event) => {
+      // Run in capture phase so we fire before Turbo's bubble-phase popstate
+      // handler. When the popstate was triggered by our own historyBack
+      // (expectedPopstates > 0), stop propagation immediately after processing
+      // so Turbo never sees the event and cannot start a restoration visit
+      // (which shows the loading bar and replaces the body).
+      const isOwn = this.orchestrator.expectedPopstates > 0;
       this.orchestrator.onPopstate({
         historyState: event.state,
         locationHref: window.location.href,
       });
-    window.addEventListener("popstate", this._onPopstate);
+      if (isOwn) event.stopImmediatePropagation();
+    };
+    window.addEventListener("popstate", this._onPopstate, true);
 
     this._onCancel = (event) => {
       event.preventDefault();
+      if (!this.element.open) return;
+      if (this.#restoring) return;
       const top = this.#topLayer();
       if (!top || top.dismissible === false) return;
       this.orchestrator.pop();
@@ -45,22 +69,98 @@ export class ModalStackController extends Controller {
 
     this._onBackdropClick = (event) => {
       if (event.target !== this.element) return;
+      if (!this.element.open) return;
+      if (this.#restoring) return;
       const top = this.#topLayer();
       if (!top || top.dismissible === false) return;
       this.orchestrator.pop();
     };
     this.element.addEventListener("click", this._onBackdropClick);
 
+    // After any Turbo render (restoration, morph, stream-driven page update),
+    // re-check scroll lock. A snapshot cached while a modal was open can
+    // restore data-modal-stack-locked on body even after the modal has closed.
+    // turbo:before-cache strips the attribute before caching; this is the
+    // safety net for renders that fire from an already-stale cache.
+    this._onTurboRender = () => {
+      if (this.orchestrator.depth === 0) this.runtime.unlockScroll();
+    };
+    document.addEventListener("turbo:render", this._onTurboRender);
+
     this.#registerStreamActions();
+
+    if (snapshotState?.layers?.length > 0) {
+      this.#restoring = true;
+      this.#restoreSnapshot(snapshotState.layers)
+        .catch((err) =>
+          console.warn("[modal_stack] snapshot restore failed:", err),
+        )
+        .finally(() => {
+          this.#restoring = false;
+        });
+    }
+
     this.element.dispatchEvent(
-      new CustomEvent("modal_stack:ready", { bubbles: true, detail: { stackId } }),
+      new CustomEvent("modal_stack:ready", {
+        bubbles: true,
+        detail: { stackId },
+      }),
     );
   }
 
+  async #restoreSnapshot(layers) {
+    // Always open each layer from its first frame URL (accessible via GET).
+    const baseUrls = layers.map((l) => l.frames?.[0]?.url ?? l.url);
+
+    // Pre-fetch base frames in parallel so the push loop runs without any
+    // network await between iterations, eliminating the race window where
+    // Escape fires while this.state lags behind (only partial stack).
+    const baseFragments = await Promise.all(
+      baseUrls.map((url) => this.orchestrator.prefetch(url).catch(() => null)),
+    );
+
+    for (let i = 0; i < layers.length; i++) {
+      const layer = layers[i];
+      await this.orchestrator.push(
+        {
+          id: layer.id,
+          url: baseUrls[i],
+          variant: layer.variant,
+          dismissible: layer.dismissible,
+          size: layer.size,
+          side: layer.side,
+          width: layer.width,
+          height: layer.height,
+        },
+        { fragment: baseFragments[i] },
+      );
+
+      // Restore additional wizard frames using HTML saved to sessionStorage
+      // on the previous visit. Each frame may be a POST-only step that 404s
+      // on a direct GET — we use the cached HTML instead of re-fetching.
+      const extraFrames = (layer.frames ?? []).slice(1);
+      for (let fi = 0; fi < extraFrames.length; fi++) {
+        const frame = extraFrames[fi];
+        const frameIndex = fi + 1;
+        const cached = this.runtime.getFrameFragment(layer.id, frameIndex);
+        if (!cached) break; // Can't restore beyond this frame — stop here
+        // Warm the orchestrator's fragment cache so forward re-navigation
+        // after a back doesn't attempt a failing GET for this URL.
+        this.orchestrator.setFragmentCache(frame.url, cached.cloneNode(true));
+        await this.orchestrator.pathTo(
+          { url: frame.url, stale: frame.stale },
+          { fragment: cached.cloneNode(true) },
+        );
+      }
+    }
+  }
+
   disconnect() {
-    window.removeEventListener("popstate", this._onPopstate);
+    window.removeEventListener("popstate", this._onPopstate, true);
     this.element.removeEventListener("cancel", this._onCancel);
     this.element.removeEventListener("click", this._onBackdropClick);
+    document.removeEventListener("turbo:render", this._onTurboRender);
+    this.runtime.destroy?.();
   }
 
   push(layer, opts) {
@@ -207,7 +307,10 @@ function layerPatchFromStreamElement(el) {
 }
 
 function generateLayerId() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return crypto.randomUUID();
   }
   return `ms-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;

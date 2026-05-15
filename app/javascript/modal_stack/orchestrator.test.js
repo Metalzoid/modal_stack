@@ -299,12 +299,12 @@ describe("closeAll", () => {
     const types = runtime._calls.map((c) => c.type);
     expect(types).toEqual([
       "closeDialog",
+      "clearSnapshot",
       "unmountAllLayers",
       "clearFrameCache",
       "clearFrameCache",
       "unlockScroll",
       "historyBack",
-      "clearSnapshot",
     ]);
 
     runtime._calls.length = 0;
@@ -561,10 +561,10 @@ describe("onPopstate", () => {
     const types = runtime._calls.map((c) => c.type);
     expect(types).toEqual([
       "closeDialog",
+      "clearSnapshot",
       "unmountAllLayers",
       "clearFrameCache",
       "unlockScroll",
-      "clearSnapshot",
     ]);
     expect(types).not.toContain("historyBack");
   });
