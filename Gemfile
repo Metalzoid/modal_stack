@@ -23,6 +23,7 @@ group :development, :test do
   gem "puma", "~> 8.0"
   gem "rspec", "~> 3.12"
   gem "rspec-rails", "~> 8.0"
+  gem "rspec-retry", "~> 0.6"
   gem "rubocop", "~> 1.60", require: false
   gem "rubocop-rspec", require: false
   gem "sqlite3", "~> 2.9"
