@@ -7,7 +7,7 @@ RSpec.describe "Modal replace", type: :system, js: true do
     visit "/"
     click_link "Wizard step 1", id: "open-wizard"
     within_modal { expect(page).to have_css("#wizard-step", text: "Step 1") }
-    expect(page).to have_current_path("/wizard/step_1")
+    expect(page).to have_current_path("/")
 
     within_modal { click_button "Advance", id: "wizard-advance" }
 
@@ -16,7 +16,7 @@ RSpec.describe "Modal replace", type: :system, js: true do
     # (NodeNotFoundError on slow CI). Asserting at page level lets Capybara's
     # built-in matcher retry against fresh DOM each tick.
     expect(page).to have_modal_stack(depth: 1) # still one layer — replaced, not pushed
-    expect(page).to have_current_path("/wizard/step_2")
+    expect(page).to have_current_path("/")
     expect(page).to have_css('[data-modal-stack-target="layer"] #wizard-step', text: "Step 2")
   end
 end

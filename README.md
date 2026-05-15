@@ -409,6 +409,8 @@ stale), either pass `stale: true` to `modal_path_to` or set the
 `X-Modal-Stack-Stale: true` header on the response. The runtime will
 refetch the URL instead of restoring from cache.
 
+> **Persisting form data between steps:** form field values are *not* automatically saved — see [`modal_stack:frame-leave` / `modal_stack:frame-enter`](#persisting-form-data-across-wizard-steps) for the recommended pattern.
+
 > ⚠️ **`replaceTop` collapses path frames.** When the top layer has a
 > path and you call `turbo_stream.modal_replace`, the path is forgotten:
 > the layer is morphed back to a single frame and the surplus history
@@ -609,12 +611,14 @@ per command name.
 
 #### Custom events
 
-The `<dialog>` emits two `CustomEvent`s that bubble to `document`:
+The `<dialog>` emits `CustomEvent`s that bubble to `document`:
 
-| Event                  | `detail`                                    | Fired when |
-| ---------------------- | ------------------------------------------- | ---------- |
-| `modal_stack:ready`    | `{ stackId }`                               | The Stimulus controller has connected and the orchestrator is ready. |
-| `modal_stack:error`    | `{ action, error }`                         | A Turbo Stream action (`modal_push`/`modal_pop`/`modal_replace`/`modal_close_all`/`modal_path_to`/`modal_path_back`) threw or rejected. The page is not crashed; surface UI feedback in the listener. |
+| Event                       | `detail`                                            | Fired when |
+| --------------------------- | --------------------------------------------------- | ---------- |
+| `modal_stack:ready`         | `{ stackId }`                                       | The Stimulus controller has connected and the orchestrator is ready. |
+| `modal_stack:error`         | `{ action, error }`                                 | A Turbo Stream action threw or rejected. The page is not crashed; surface UI feedback in the listener. |
+| `modal_stack:frame-leave`   | `{ layerId, frameIndex, direction }`                | A path frame is about to be swapped out (user going forward or back). Fired while the leaving frame is still in the DOM — listeners can read current form field values. |
+| `modal_stack:frame-enter`   | `{ layerId, frameIndex, direction }`                | A path frame has been mounted (user arrived at a step, restored from cache, or restored after page reload). Fired after the new frame is in the DOM — listeners can populate form fields. `direction` is `"forward"` or `"back"`. |
 
 ```js
 document.addEventListener("modal_stack:error", (event) => {
@@ -622,6 +626,72 @@ document.addEventListener("modal_stack:error", (event) => {
   showFlash(`Modal action ${action} failed: ${error.message}`);
 });
 ```
+
+##### Persisting form data across wizard steps
+
+Form field values typed by the user are **not** automatically preserved by modal_stack — that is the responsibility of the host application. Use `modal_stack:frame-leave` and `modal_stack:frame-enter` to save and restore data.
+
+Example with a Stimulus controller added to each wizard step view:
+
+```js
+// app/javascript/controllers/wizard_step_controller.js
+import { Controller } from "@hotwired/stimulus"
+
+export default class extends Controller {
+  static values = { key: String }
+
+  connect() {
+    // Listen on the dialog so events from any nested frame reach us.
+    this._leave = (e) => {
+      if (this.#isMyFrame(e)) this.#save()
+    }
+    this._enter = (e) => {
+      if (this.#isMyFrame(e)) this.#restore()
+    }
+    document.addEventListener("modal_stack:frame-leave", this._leave)
+    document.addEventListener("modal_stack:frame-enter", this._enter)
+  }
+
+  disconnect() {
+    document.removeEventListener("modal_stack:frame-leave", this._leave)
+    document.removeEventListener("modal_stack:frame-enter", this._enter)
+  }
+
+  #isMyFrame(event) {
+    // The controller's element lives inside the frame — check ancestry.
+    return event.target.contains(this.element)
+  }
+
+  #save() {
+    const data = {}
+    for (const el of this.element.querySelectorAll("input, textarea, select")) {
+      if (el.name) data[el.name] = el.value
+    }
+    sessionStorage.setItem(this.keyValue, JSON.stringify(data))
+  }
+
+  #restore() {
+    const raw = sessionStorage.getItem(this.keyValue)
+    if (!raw) return
+    const data = JSON.parse(raw)
+    for (const [name, value] of Object.entries(data)) {
+      const el = this.element.querySelector(`[name="${name}"]`)
+      if (el) el.value = value
+    }
+  }
+}
+```
+
+Then attach it to the step partial:
+
+```erb
+<%# app/views/wizard/_step1.html.erb %>
+<div data-controller="wizard-step" data-wizard-step-key-value="wizard-step-1">
+  <%# form fields … %>
+</div>
+```
+
+> **Why not auto-persist?** The gem cannot know the shape of your data, applicable validations, or where you want it stored (session, server-side draft, etc.). Keeping this boundary explicit also means you can encrypt, debounce, or sync to a server-side draft without fighting the gem.
 
 #### Scrollbar-width compensation
 

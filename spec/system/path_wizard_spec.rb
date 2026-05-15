@@ -25,11 +25,11 @@ RSpec.describe "Modal path wizard", type: :system, js: true do
   it "advances through frames and steps back via the back-link helper" do
     visit "/"
     wizard_to_b
-    expect(page).to have_current_path("/path_wizard/step_b")
+    expect(page).to have_current_path("/")
     within_modal_frame { expect(page).to have_css("h2#path-step", text: "Path step B") }
 
     wizard_to_c
-    expect(page).to have_current_path("/path_wizard/step_c")
+    expect(page).to have_current_path("/")
 
     within_modal_frame { click_button "Back to B", id: "back-to-b" }
     expect(page).to have_modal_frames(2)

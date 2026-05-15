@@ -492,15 +492,15 @@ describe("pop", () => {
     const first = pushed(freshStack()).state;
     const { state, commands } = pop(first);
     expect(state.layers).toEqual([]);
-    // closeDialog comes first so its exit transition runs in parallel
-    // with the layer's [data-leaving] transition.
+    // closeDialog and clearSnapshot come first so a reload during the
+    // exit animation does not restore the modal that is already closing.
     expect(commands).toEqual([
       { type: "closeDialog" },
+      { type: "clearSnapshot" },
       { type: "unmountTopLayer" },
       { type: "clearFrameCache", layerId: "L1" },
       { type: "historyBack", n: 1 },
       { type: "unlockScroll" },
-      { type: "clearSnapshot" },
     ]);
   });
 
@@ -509,12 +509,14 @@ describe("pop", () => {
     s = push(s, { id: "L2", url: "/clients/new" }).state;
     const { state, commands } = pop(s);
     expect(state.layers).toHaveLength(1);
+    // persistSnapshot comes first so a reload during the animation
+    // restores the correct remaining stack (without the popped layer).
     expect(commands).toEqual([
+      { type: "persistSnapshot" },
       { type: "unmountTopLayer" },
       { type: "clearFrameCache", layerId: "L2" },
       { type: "historyBack", n: 1 },
       { type: "inertLayer", layerId: "L1", value: false },
-      { type: "persistSnapshot" },
     ]);
   });
 
@@ -526,11 +528,11 @@ describe("pop", () => {
     expect(state.layers).toEqual([]);
     expect(commands).toEqual([
       { type: "closeDialog" },
+      { type: "clearSnapshot" },
       { type: "unmountTopLayer" },
       { type: "clearFrameCache", layerId: "L1" },
       { type: "historyBack", n: 3 },
       { type: "unlockScroll" },
-      { type: "clearSnapshot" },
     ]);
   });
 });
@@ -658,13 +660,13 @@ describe("closeAll", () => {
     expect(state.layers).toEqual([]);
     expect(commands).toEqual([
       { type: "closeDialog" },
+      { type: "clearSnapshot" },
       { type: "unmountAllLayers" },
       { type: "clearFrameCache", layerId: "L1" },
       { type: "clearFrameCache", layerId: "L2" },
       { type: "clearFrameCache", layerId: "L3" },
       { type: "unlockScroll" },
       { type: "historyBack", n: 3 },
-      { type: "clearSnapshot" },
     ]);
   });
 
@@ -694,11 +696,11 @@ describe("handlePopstate", () => {
     expect(state.layers).toEqual([]);
     expect(commands).toEqual([
       { type: "closeDialog" },
+      { type: "clearSnapshot" },
       { type: "unmountAllLayers" },
       { type: "clearFrameCache", layerId: "L1" },
       { type: "clearFrameCache", layerId: "L2" },
       { type: "unlockScroll" },
-      { type: "clearSnapshot" },
     ]);
   });
 
@@ -718,10 +720,10 @@ describe("handlePopstate", () => {
     });
     expect(state.layers.map((l) => l.id)).toEqual(["L1"]);
     expect(commands).toEqual([
+      { type: "persistSnapshot" },
       { type: "unmountTopLayer" },
       { type: "clearFrameCache", layerId: "L2" },
       { type: "inertLayer", layerId: "L1", value: false },
-      { type: "persistSnapshot" },
     ]);
     expect(commands).not.toContainEqual({ type: "historyBack", n: 1 });
   });
@@ -735,12 +737,12 @@ describe("handlePopstate", () => {
     expect(state.layers).toEqual([]);
     expect(commands).toEqual([
       { type: "closeDialog" },
+      { type: "clearSnapshot" },
       { type: "unmountTopLayer" },
       { type: "unmountTopLayer" },
       { type: "clearFrameCache", layerId: "L1" },
       { type: "clearFrameCache", layerId: "L2" },
       { type: "unlockScroll" },
-      { type: "clearSnapshot" },
     ]);
   });
 

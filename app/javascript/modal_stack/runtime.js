@@ -1,4 +1,5 @@
 export const SNAPSHOT_KEY = "modalStackSnapshot";
+export const FRAME_HTML_KEY = "modalStackFrameHtml";
 export const FRAGMENT_HEADER = "X-Modal-Stack-Request";
 // Server response header that flags the just-rendered frame as stale —
 // the runtime will refetch instead of restoring from the in-memory cache
@@ -27,11 +28,17 @@ const LEAVE_TIMEOUT_FALLBACK_MS = 600;
  * `orchestrator.test.js` for an in-memory fake).
  */
 export class BrowserRuntime {
+  // Counter: incremented per historyBack call, decremented per Turbo visit
+  // cancelled. Guards every popstate that lands on a Turbo-owned entry.
+  #suppressTurboVisitCount = 0;
+  #suppressTurboVisitTimer = null;
+
   /**
    * @param {Object} options
    * @param {HTMLDialogElement} options.dialog
    * @param {HTMLElement} [options.body]
    * @param {History} [options.history]
+   * @param {Location} [options.location]
    * @param {typeof fetch} [options.fetcher]
    * @param {Storage} [options.store]
    * @param {Document} [options.documentRef]
@@ -40,6 +47,7 @@ export class BrowserRuntime {
     dialog,
     body = globalThis.document?.body,
     history = globalThis.history,
+    location = globalThis.location,
     fetcher = globalThis.fetch?.bind(globalThis),
     store = globalThis.sessionStorage,
     documentRef = globalThis.document,
@@ -50,6 +58,7 @@ export class BrowserRuntime {
     this.dialog = dialog;
     this.body = body;
     this.history = history;
+    this.location = location;
     this.fetcher = fetcher;
     this.store = store;
     this.document = documentRef;
@@ -57,6 +66,44 @@ export class BrowserRuntime {
     // Populated by mountFrame on the way forward, drained by unmountFrame on
     // the way back, purged on layer teardown via clearFrameCache.
     this._frameCache = new Map();
+
+    // When our historyBack() navigates back to the original page-load history
+    // entry, that entry carries Turbo's restorationIdentifier. Turbo sees it on
+    // popstate and starts a restoration visit which replaces the body — including
+    // restoring a cached snapshot that had data-modal-stack-locked baked in,
+    // leaving the page scroll-locked after the modal closes.
+    //
+    // We intercept turbo:before-visit and cancel the *one* restoration triggered
+    // by our own historyBack. The flag is armed in historyBack and consumed (or
+    // timed out) immediately so it cannot suppress a user-initiated navigation.
+    this.#suppressTurboVisitCount = 0;
+    this._turboVisitGuard = (event) => {
+      if (this.#suppressTurboVisitCount <= 0) return;
+      this.#suppressTurboVisitCount -= 1;
+      if (this.#suppressTurboVisitCount === 0) clearTimeout(this.#suppressTurboVisitTimer);
+      event.preventDefault();
+    };
+    documentRef.addEventListener?.("turbo:before-visit", this._turboVisitGuard);
+
+    // Turbo caches a page snapshot before navigating away. If the modal is
+    // open at cache time, data-modal-stack-locked is baked into the snapshot.
+    // When Turbo later restores or morphs from that snapshot, the attribute
+    // is re-applied to body, leaving the page scroll-locked even though no
+    // modal is open. Stripping the lock before cache keeps snapshots clean.
+    this._turboBeforeCache = () => {
+      if (!this.body) return;
+      delete this.body.dataset.modalStackLocked;
+      const root = this.document?.documentElement;
+      if (root) root.style.removeProperty(SCROLLBAR_WIDTH_VAR);
+    };
+    documentRef.addEventListener?.("turbo:before-cache", this._turboBeforeCache);
+  }
+
+  // Called by the Stimulus controller on disconnect so the global listener
+  // is cleaned up if the element leaves the DOM (e.g. full page navigation).
+  destroy() {
+    this.document?.removeEventListener?.("turbo:before-visit", this._turboVisitGuard);
+    this.document?.removeEventListener?.("turbo:before-cache", this._turboBeforeCache);
   }
 
   showDialog() {
@@ -130,6 +177,10 @@ export class BrowserRuntime {
     // animateOut below operates on the wrapper, which we'll throw away.
     const oldFrame = this.#findFrame(layer, fromFrameIndex);
     if (oldFrame) {
+      // Fire before detach so listeners can still read live form values.
+      this.#dispatchFrameEvent("modal_stack:frame-leave", {
+        layerId, frameIndex: fromFrameIndex, direction: "forward",
+      });
       const cached = this.document.createDocumentFragment();
       cached.append(...oldFrame.childNodes);
       this._frameCache.set(this.#frameKey(layerId, fromFrameIndex), cached);
@@ -140,12 +191,24 @@ export class BrowserRuntime {
     layer.appendChild(newFrame);
     this.#applyFrameDepth(layer, toFrameIndex);
 
+    // Persist the incoming frame's HTML so it can be restored across page
+    // reloads. Frame 0 is always the layer's initial mount (accessible via
+    // GET); frames 1+ may be POST-only wizard steps that 404 on direct fetch.
+    if (toFrameIndex > 0) {
+      this.#persistFrameHtml(layerId, toFrameIndex, newFrame.innerHTML);
+    }
+
     // Old frame is removed synchronously. Entering frames carry
     // data-transition + data-direction so host CSS can drive the *enter*
     // animation via @starting-style; the leaving frame would need its own
     // overlapping layout (e.g. position: absolute) to also animate out,
     // which we leave to the host CSS preset.
     if (oldFrame) oldFrame.remove();
+
+    // Fire after mount so listeners can read/populate the new frame's DOM.
+    this.#dispatchFrameEvent("modal_stack:frame-enter", {
+      layerId, frameIndex: toFrameIndex, direction: "forward",
+    });
 
     // Remove transition attrs once the animation completes so the :has()
     // rule that clips overflow doesn't persist indefinitely.
@@ -155,6 +218,11 @@ export class BrowserRuntime {
   async unmountFrame({ layerId, fromFrameIndex, toFrameIndex, url, stale, transition }) {
     const layer = this.#findLayer(layerId);
     if (!layer) return;
+
+    // Fire before detach so listeners can still read live form values.
+    this.#dispatchFrameEvent("modal_stack:frame-leave", {
+      layerId, frameIndex: fromFrameIndex, direction: "back",
+    });
 
     const cacheKey = this.#frameKey(layerId, toFrameIndex);
     let restored = stale ? null : this._frameCache.get(cacheKey) ?? null;
@@ -181,6 +249,11 @@ export class BrowserRuntime {
     const oldFrame = this.#findFrame(layer, fromFrameIndex);
     if (oldFrame) oldFrame.remove();
 
+    // Fire after mount so listeners can restore data into the returned frame.
+    this.#dispatchFrameEvent("modal_stack:frame-enter", {
+      layerId, frameIndex: toFrameIndex, direction: "back",
+    });
+
     if (transition) this.#cleanupFrameTransition(newFrame);
   }
 
@@ -189,6 +262,7 @@ export class BrowserRuntime {
     for (const key of [...this._frameCache.keys()]) {
       if (key.startsWith(prefix)) this._frameCache.delete(key);
     }
+    this.#removeFrameHtmlForLayer(layerId);
   }
 
   async unmountTopLayer() {
@@ -203,15 +277,25 @@ export class BrowserRuntime {
     await Promise.all(layers.map((l) => animateOut(l, timeout)));
   }
 
-  pushHistory({ url, historyState }) {
-    this.history.pushState(historyState, "", url);
+  pushHistory({ historyState }) {
+    this.history.pushState(historyState, "", this.location?.href ?? "");
   }
 
-  replaceHistory({ url, historyState }) {
-    this.history.replaceState(historyState, "", url);
+  replaceHistory({ historyState }) {
+    this.history.replaceState(historyState, "", this.location?.href ?? "");
   }
 
   historyBack({ n }) {
+    // Arm the guard before calling history.go so turbo:before-visit (which
+    // fires synchronously inside Turbo's popstate handler) can cancel the
+    // restoration visit. A safety timeout clears the flag if the popstate
+    // never triggers a Turbo visit (i.e. we landed on one of our own phantom
+    // entries that lack Turbo's restorationIdentifier).
+    this.#suppressTurboVisitCount += 1;
+    clearTimeout(this.#suppressTurboVisitTimer);
+    this.#suppressTurboVisitTimer = setTimeout(() => {
+      this.#suppressTurboVisitCount = 0;
+    }, 1000);
     this.history.go(-n);
   }
 
@@ -235,6 +319,7 @@ export class BrowserRuntime {
     if (!this.store) return;
     try {
       this.store.removeItem(SNAPSHOT_KEY);
+      this.store.removeItem(FRAME_HTML_KEY);
     } catch {
       // ignore
     }
@@ -246,6 +331,60 @@ export class BrowserRuntime {
       return this.store.getItem(SNAPSHOT_KEY);
     } catch {
       return null;
+    }
+  }
+
+  // Preloads _frameCache from sessionStorage so wizard frames saved across
+  // reloads can be restored via pathTo without re-fetching their URLs.
+  restoreFrameCacheFromStorage() {
+    const map = this.#readFrameHtmlMap();
+    for (const [key, html] of Object.entries(map)) {
+      this._frameCache.set(key, parseFragment(html, this.document));
+    }
+  }
+
+  // Returns the cached fragment for a specific frame (used during restoration).
+  getFrameFragment(layerId, frameIndex) {
+    return this._frameCache.get(this.#frameKey(layerId, frameIndex)) ?? null;
+  }
+
+  #persistFrameHtml(layerId, frameIndex, html) {
+    if (!this.store) return;
+    try {
+      const map = this.#readFrameHtmlMap();
+      map[`${layerId}#${frameIndex}`] = html;
+      this.store.setItem(FRAME_HTML_KEY, JSON.stringify(map));
+    } catch {
+      // sessionStorage full or unavailable — best effort
+    }
+  }
+
+  #readFrameHtmlMap() {
+    try {
+      const raw = this.store?.getItem(FRAME_HTML_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  #removeFrameHtmlForLayer(layerId) {
+    if (!this.store) return;
+    try {
+      const map = this.#readFrameHtmlMap();
+      const prefix = `${layerId}#`;
+      let changed = false;
+      for (const key of Object.keys(map)) {
+        if (key.startsWith(prefix)) { delete map[key]; changed = true; }
+      }
+      if (!changed) return;
+      if (Object.keys(map).length === 0) {
+        this.store.removeItem(FRAME_HTML_KEY);
+      } else {
+        this.store.setItem(FRAME_HTML_KEY, JSON.stringify(map));
+      }
+    } catch {
+      // ignore
     }
   }
 
@@ -291,6 +430,12 @@ export class BrowserRuntime {
 
   #frameKey(layerId, frameIndex) {
     return `${layerId}#${frameIndex}`;
+  }
+
+  #dispatchFrameEvent(name, detail) {
+    this.dialog.dispatchEvent(
+      new CustomEvent(name, { bubbles: true, detail }),
+    );
   }
 
   #purgeFrameCacheAbove(layerId, frameIndex) {

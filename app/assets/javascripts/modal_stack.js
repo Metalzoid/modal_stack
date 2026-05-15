@@ -289,18 +289,18 @@ function pop(state) {
   const newTop = newLayers[newLayers.length - 1] ?? null;
   const commands = [];
   if (newTop) {
+    commands.push({ type: "persistSnapshot" });
     commands.push({ type: "unmountTopLayer" });
     commands.push({ type: "clearFrameCache", layerId: popped.id });
     commands.push({ type: "historyBack", n: framesToWalkBack });
     commands.push({ type: "inertLayer", layerId: newTop.id, value: false });
-    commands.push({ type: "persistSnapshot" });
   } else {
     commands.push({ type: "closeDialog" });
+    commands.push({ type: "clearSnapshot" });
     commands.push({ type: "unmountTopLayer" });
     commands.push({ type: "clearFrameCache", layerId: popped.id });
     commands.push({ type: "historyBack", n: framesToWalkBack });
     commands.push({ type: "unlockScroll" });
-    commands.push({ type: "clearSnapshot" });
   }
   return { state: { ...state, layers: newLayers }, commands };
 }
@@ -369,11 +369,11 @@ function closeAll(state) {
     state: { ...state, layers: Object.freeze([]) },
     commands: [
       { type: "closeDialog" },
+      { type: "clearSnapshot" },
       { type: "unmountAllLayers" },
       ...cacheClears,
       { type: "unlockScroll" },
-      { type: "historyBack", n },
-      { type: "clearSnapshot" }
+      { type: "historyBack", n }
     ]
   };
 }
@@ -390,10 +390,10 @@ function handlePopstate(state, { historyState, locationHref }) {
       state: { ...state, layers: Object.freeze([]) },
       commands: [
         { type: "closeDialog" },
+        { type: "clearSnapshot" },
         { type: "unmountAllLayers" },
         ...cacheClears,
-        { type: "unlockScroll" },
-        { type: "clearSnapshot" }
+        { type: "unlockScroll" }
       ]
     };
   }
@@ -406,8 +406,12 @@ function handlePopstate(state, { historyState, locationHref }) {
     const newLayers = Object.freeze(state.layers.slice(0, targetDepth));
     const newTop = newLayers[newLayers.length - 1] ?? null;
     const commands = [];
-    if (!newTop)
+    if (newTop) {
+      commands.push({ type: "persistSnapshot" });
+    } else {
       commands.push({ type: "closeDialog" });
+      commands.push({ type: "clearSnapshot" });
+    }
     for (let i = 0;i < droppedLayers.length; i++) {
       commands.push({ type: "unmountTopLayer" });
     }
@@ -416,10 +420,8 @@ function handlePopstate(state, { historyState, locationHref }) {
     }
     if (newTop) {
       commands.push({ type: "inertLayer", layerId: newTop.id, value: false });
-      commands.push({ type: "persistSnapshot" });
     } else {
       commands.push({ type: "unlockScroll" });
-      commands.push({ type: "clearSnapshot" });
     }
     return { state: { ...state, layers: newLayers }, commands };
   }
@@ -615,6 +617,9 @@ class Orchestrator {
   get depth() {
     return this.state.layers.length;
   }
+  get expectedPopstates() {
+    return this.#expectedPopstates;
+  }
   async push(layer, { html = null, fragment = null } = {}) {
     const transition = push(this.state, layer, {
       maxDepth: this.maxDepth,
@@ -689,6 +694,15 @@ class Orchestrator {
     this.#inflight.clear();
     this.#fragmentCache.clear();
   }
+  setFragmentCache(url, fragment) {
+    if (!url || !fragment)
+      return;
+    this.#fragmentCache.set(url, {
+      fragment: cloneFragment(fragment),
+      stale: false,
+      ts: Date.now()
+    });
+  }
   prefetch(url) {
     if (!url || typeof this.runtime.fetchFragment !== "function") {
       return Promise.resolve(null);
@@ -749,6 +763,7 @@ function supportsAbort() {
 
 // app/javascript/modal_stack/runtime.js
 var SNAPSHOT_KEY = "modalStackSnapshot";
+var FRAME_HTML_KEY = "modalStackFrameHtml";
 var FRAGMENT_HEADER = "X-Modal-Stack-Request";
 var STALE_HEADER = "X-Modal-Stack-Stale";
 var SCROLLBAR_WIDTH_VAR = "--modal-stack-scrollbar-width";
@@ -759,10 +774,13 @@ var LEAVE_TIMEOUT_FLOOR_MS = 300;
 var LEAVE_TIMEOUT_FALLBACK_MS = 600;
 
 class BrowserRuntime {
+  #suppressTurboVisitCount = 0;
+  #suppressTurboVisitTimer = null;
   constructor({
     dialog,
     body = globalThis.document?.body,
     history = globalThis.history,
+    location = globalThis.location,
     fetcher = globalThis.fetch?.bind(globalThis),
     store = globalThis.sessionStorage,
     documentRef = globalThis.document
@@ -776,10 +794,34 @@ class BrowserRuntime {
     this.dialog = dialog;
     this.body = body;
     this.history = history;
+    this.location = location;
     this.fetcher = fetcher;
     this.store = store;
     this.document = documentRef;
     this._frameCache = new Map;
+    this.#suppressTurboVisitCount = 0;
+    this._turboVisitGuard = (event) => {
+      if (this.#suppressTurboVisitCount <= 0)
+        return;
+      this.#suppressTurboVisitCount -= 1;
+      if (this.#suppressTurboVisitCount === 0)
+        clearTimeout(this.#suppressTurboVisitTimer);
+      event.preventDefault();
+    };
+    documentRef.addEventListener?.("turbo:before-visit", this._turboVisitGuard);
+    this._turboBeforeCache = () => {
+      if (!this.body)
+        return;
+      delete this.body.dataset.modalStackLocked;
+      const root = this.document?.documentElement;
+      if (root)
+        root.style.removeProperty(SCROLLBAR_WIDTH_VAR);
+    };
+    documentRef.addEventListener?.("turbo:before-cache", this._turboBeforeCache);
+  }
+  destroy() {
+    this.document?.removeEventListener?.("turbo:before-visit", this._turboVisitGuard);
+    this.document?.removeEventListener?.("turbo:before-cache", this._turboBeforeCache);
   }
   showDialog() {
     if (!this.dialog.open)
@@ -844,6 +886,11 @@ class BrowserRuntime {
     const frag = await this.#resolveFragment({ url, html, fragment });
     const oldFrame = this.#findFrame(layer, fromFrameIndex);
     if (oldFrame) {
+      this.#dispatchFrameEvent("modal_stack:frame-leave", {
+        layerId,
+        frameIndex: fromFrameIndex,
+        direction: "forward"
+      });
       const cached = this.document.createDocumentFragment();
       cached.append(...oldFrame.childNodes);
       this._frameCache.set(this.#frameKey(layerId, fromFrameIndex), cached);
@@ -852,8 +899,16 @@ class BrowserRuntime {
     newFrame.append(...frag.childNodes);
     layer.appendChild(newFrame);
     this.#applyFrameDepth(layer, toFrameIndex);
+    if (toFrameIndex > 0) {
+      this.#persistFrameHtml(layerId, toFrameIndex, newFrame.innerHTML);
+    }
     if (oldFrame)
       oldFrame.remove();
+    this.#dispatchFrameEvent("modal_stack:frame-enter", {
+      layerId,
+      frameIndex: toFrameIndex,
+      direction: "forward"
+    });
     if (transition)
       this.#cleanupFrameTransition(newFrame);
   }
@@ -861,6 +916,11 @@ class BrowserRuntime {
     const layer = this.#findLayer(layerId);
     if (!layer)
       return;
+    this.#dispatchFrameEvent("modal_stack:frame-leave", {
+      layerId,
+      frameIndex: fromFrameIndex,
+      direction: "back"
+    });
     const cacheKey = this.#frameKey(layerId, toFrameIndex);
     let restored = stale ? null : this._frameCache.get(cacheKey) ?? null;
     if (!restored) {
@@ -878,6 +938,11 @@ class BrowserRuntime {
     const oldFrame = this.#findFrame(layer, fromFrameIndex);
     if (oldFrame)
       oldFrame.remove();
+    this.#dispatchFrameEvent("modal_stack:frame-enter", {
+      layerId,
+      frameIndex: toFrameIndex,
+      direction: "back"
+    });
     if (transition)
       this.#cleanupFrameTransition(newFrame);
   }
@@ -887,6 +952,7 @@ class BrowserRuntime {
       if (key.startsWith(prefix))
         this._frameCache.delete(key);
     }
+    this.#removeFrameHtmlForLayer(layerId);
   }
   async unmountTopLayer() {
     const layer = this.#topLayer();
@@ -899,13 +965,18 @@ class BrowserRuntime {
     const timeout = this.#leaveTimeoutMs();
     await Promise.all(layers.map((l) => animateOut(l, timeout)));
   }
-  pushHistory({ url, historyState }) {
-    this.history.pushState(historyState, "", url);
+  pushHistory({ historyState }) {
+    this.history.pushState(historyState, "", this.location?.href ?? "");
   }
-  replaceHistory({ url, historyState }) {
-    this.history.replaceState(historyState, "", url);
+  replaceHistory({ historyState }) {
+    this.history.replaceState(historyState, "", this.location?.href ?? "");
   }
   historyBack({ n }) {
+    this.#suppressTurboVisitCount += 1;
+    clearTimeout(this.#suppressTurboVisitTimer);
+    this.#suppressTurboVisitTimer = setTimeout(() => {
+      this.#suppressTurboVisitCount = 0;
+    }, 1000);
     this.history.go(-n);
   }
   rebuildFromSnapshot() {
@@ -923,6 +994,7 @@ class BrowserRuntime {
       return;
     try {
       this.store.removeItem(SNAPSHOT_KEY);
+      this.store.removeItem(FRAME_HTML_KEY);
     } catch {}
   }
   readSnapshot() {
@@ -933,6 +1005,54 @@ class BrowserRuntime {
     } catch {
       return null;
     }
+  }
+  restoreFrameCacheFromStorage() {
+    const map = this.#readFrameHtmlMap();
+    for (const [key, html] of Object.entries(map)) {
+      this._frameCache.set(key, parseFragment(html, this.document));
+    }
+  }
+  getFrameFragment(layerId, frameIndex) {
+    return this._frameCache.get(this.#frameKey(layerId, frameIndex)) ?? null;
+  }
+  #persistFrameHtml(layerId, frameIndex, html) {
+    if (!this.store)
+      return;
+    try {
+      const map = this.#readFrameHtmlMap();
+      map[`${layerId}#${frameIndex}`] = html;
+      this.store.setItem(FRAME_HTML_KEY, JSON.stringify(map));
+    } catch {}
+  }
+  #readFrameHtmlMap() {
+    try {
+      const raw = this.store?.getItem(FRAME_HTML_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }
+  #removeFrameHtmlForLayer(layerId) {
+    if (!this.store)
+      return;
+    try {
+      const map = this.#readFrameHtmlMap();
+      const prefix = `${layerId}#`;
+      let changed = false;
+      for (const key of Object.keys(map)) {
+        if (key.startsWith(prefix)) {
+          delete map[key];
+          changed = true;
+        }
+      }
+      if (!changed)
+        return;
+      if (Object.keys(map).length === 0) {
+        this.store.removeItem(FRAME_HTML_KEY);
+      } else {
+        this.store.setItem(FRAME_HTML_KEY, JSON.stringify(map));
+      }
+    } catch {}
   }
   #leaveTimeoutMs() {
     if (this._cachedLeaveTimeoutMs != null)
@@ -958,6 +1078,9 @@ class BrowserRuntime {
   }
   #frameKey(layerId, frameIndex) {
     return `${layerId}#${frameIndex}`;
+  }
+  #dispatchFrameEvent(name, detail) {
+    this.dialog.dispatchEvent(new CustomEvent(name, { bubbles: true, detail }));
   }
   #purgeFrameCacheAbove(layerId, frameIndex) {
     const prefix = `${layerId}#`;
@@ -1122,26 +1245,38 @@ class ModalStackController extends Controller2 {
     maxDepth: { type: Number, default: 0 },
     maxDepthStrategy: { type: String, default: "warn" }
   };
+  #restoring = false;
   connect() {
-    const stackId = this.stackIdValue || generateLayerId();
     const baseUrl = this.baseUrlValue || window.location.href;
     this.runtime = new BrowserRuntime({ dialog: this.element });
-    const snapshot2 = this.runtime.readSnapshot();
+    this.runtime.restoreFrameCacheFromStorage();
+    const savedSnapshot = this.runtime.readSnapshot();
+    const snapshotState = savedSnapshot ? restore(savedSnapshot) : null;
+    const stackId = this.stackIdValue || snapshotState?.stackId || generateLayerId();
     this.orchestrator = new Orchestrator({
       runtime: this.runtime,
       stackId,
       baseUrl,
-      restoreFrom: snapshot2,
+      restoreFrom: null,
       maxDepth: this.maxDepthValue > 0 ? this.maxDepthValue : null,
       maxDepthStrategy: this.maxDepthStrategyValue || "warn"
     });
-    this._onPopstate = (event) => this.orchestrator.onPopstate({
-      historyState: event.state,
-      locationHref: window.location.href
-    });
-    window.addEventListener("popstate", this._onPopstate);
+    this._onPopstate = (event) => {
+      const isOwn = this.orchestrator.expectedPopstates > 0;
+      this.orchestrator.onPopstate({
+        historyState: event.state,
+        locationHref: window.location.href
+      });
+      if (isOwn)
+        event.stopImmediatePropagation();
+    };
+    window.addEventListener("popstate", this._onPopstate, true);
     this._onCancel = (event) => {
       event.preventDefault();
+      if (!this.element.open)
+        return;
+      if (this.#restoring)
+        return;
       const top = this.#topLayer();
       if (!top || top.dismissible === false)
         return;
@@ -1151,19 +1286,66 @@ class ModalStackController extends Controller2 {
     this._onBackdropClick = (event) => {
       if (event.target !== this.element)
         return;
+      if (!this.element.open)
+        return;
+      if (this.#restoring)
+        return;
       const top = this.#topLayer();
       if (!top || top.dismissible === false)
         return;
       this.orchestrator.pop();
     };
     this.element.addEventListener("click", this._onBackdropClick);
+    this._onTurboRender = () => {
+      if (this.orchestrator.depth === 0)
+        this.runtime.unlockScroll();
+    };
+    document.addEventListener("turbo:render", this._onTurboRender);
     this.#registerStreamActions();
-    this.element.dispatchEvent(new CustomEvent("modal_stack:ready", { bubbles: true, detail: { stackId } }));
+    if (snapshotState?.layers?.length > 0) {
+      this.#restoring = true;
+      this.#restoreSnapshot(snapshotState.layers).catch((err) => console.warn("[modal_stack] snapshot restore failed:", err)).finally(() => {
+        this.#restoring = false;
+      });
+    }
+    this.element.dispatchEvent(new CustomEvent("modal_stack:ready", {
+      bubbles: true,
+      detail: { stackId }
+    }));
+  }
+  async#restoreSnapshot(layers) {
+    const baseUrls = layers.map((l) => l.frames?.[0]?.url ?? l.url);
+    const baseFragments = await Promise.all(baseUrls.map((url) => this.orchestrator.prefetch(url).catch(() => null)));
+    for (let i = 0;i < layers.length; i++) {
+      const layer = layers[i];
+      await this.orchestrator.push({
+        id: layer.id,
+        url: baseUrls[i],
+        variant: layer.variant,
+        dismissible: layer.dismissible,
+        size: layer.size,
+        side: layer.side,
+        width: layer.width,
+        height: layer.height
+      }, { fragment: baseFragments[i] });
+      const extraFrames = (layer.frames ?? []).slice(1);
+      for (let fi = 0;fi < extraFrames.length; fi++) {
+        const frame = extraFrames[fi];
+        const frameIndex = fi + 1;
+        const cached = this.runtime.getFrameFragment(layer.id, frameIndex);
+        if (!cached)
+          break;
+        this.orchestrator.setFragmentCache(frame.url, cached.cloneNode(true));
+        await this.orchestrator.pathTo({ url: frame.url, stale: frame.stale }, { fragment: cached.cloneNode(true) });
+      }
+    }
   }
   disconnect() {
-    window.removeEventListener("popstate", this._onPopstate);
+    window.removeEventListener("popstate", this._onPopstate, true);
     this.element.removeEventListener("cancel", this._onCancel);
     this.element.removeEventListener("click", this._onBackdropClick);
+    document.removeEventListener("turbo:render", this._onTurboRender);
+    this.runtime.destroy?.();
   }
   push(layer, opts) {
     return this.orchestrator.push(layer, opts);
