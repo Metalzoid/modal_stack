@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-05-25
+
+### Added
+- **`title:` option on `modal_stack_container`** — renders a `<header class="modal-stack__panel-header">` containing an `<h2 class="modal-stack__panel-title">` above the panel content. No output when omitted, so existing panels are unaffected.
+- **`close_button:` option on `modal_stack_container`** — renders a `×` button (`<button class="modal-stack__panel-close">`) wired to `modal-stack#pop`. Defaults to the `dismissible:` value, so dismissible layers get a close button for free and locked layers (`dismissible: false`) get none by default. Pass `close_button: false` to suppress it explicitly on a dismissible layer.
+- **CSS** for the new header slot in all four presets (`tailwind_v4`, `tailwind_v3`, `bootstrap`, `vanilla`): `.modal-stack__panel-header` (flexbox row), `.modal-stack__panel-title` (flex-1), `.modal-stack__panel-close` (transparent button, opacity hover, focus-visible ring).
+- `title` and `show_close` passed as **separate partial locals** to `_panel.html.erb` so host apps overriding the partial can consume them individually rather than receiving a pre-rendered HTML blob.
+
 ## [0.4.1] - 2026-05-14
 
 ### Added
