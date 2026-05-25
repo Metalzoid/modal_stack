@@ -1,4 +1,17 @@
 <%= content_tag(:div, wrapper_attrs) do %>
+  <% if local_assigns[:title].present? || local_assigns[:show_close] %>
+    <header class="modal-stack__panel-header">
+      <% if local_assigns[:title].present? %>
+        <h2 class="modal-stack__panel-title"><%= title %></h2>
+      <% end %>
+      <% if local_assigns[:show_close] %>
+        <button type="button"
+                class="modal-stack__panel-close"
+                data-action="click->modal-stack#pop"
+                aria-label="<%= I18n.t("modal_stack.close", default: "Close") %>">&#215;</button>
+      <% end %>
+    </header>
+  <% end %>
   <%= back_button %>
   <%= content %>
 <% end %>
