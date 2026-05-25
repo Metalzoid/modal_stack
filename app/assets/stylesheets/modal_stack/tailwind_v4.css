@@ -360,6 +360,41 @@ body[data-modal-stack-locked] {
   display: none;
 }
 
+/* --- Header slot ------------------------------------------------- */
+
+.modal-stack__panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.modal-stack__panel-title {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.modal-stack__panel-close {
+  font: inherit;
+  background: transparent;
+  border: 0;
+  padding: 0.25rem;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.55;
+  line-height: 1;
+  font-size: 1.4em;
+  flex-shrink: 0;
+  transition: opacity 150ms ease;
+}
+.modal-stack__panel-close:hover { opacity: 1; }
+.modal-stack__panel-close:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 /* --- Reduced motion ---------------------------------------------- */
 
 @media (prefers-reduced-motion: reduce) {
