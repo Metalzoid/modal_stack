@@ -13,15 +13,18 @@ module ModalStack
       DEFAULT_SIZE = :md
 
       def modal_stack_container(size: DEFAULT_SIZE, dismissible: true, variant: :modal, side: nil, width: nil, height: nil,
-                                back: false, transition: nil, html: {}, &)
+                                back: false, transition: nil, html: {},
+                                title: nil, close_button: nil, &)
         attrs = build_panel_attrs(size: size, variant: variant, side: side,
                                   dismissible: dismissible, width: width,
                                   height: height, transition: transition, html: html)
         body = capture(&)
         back_html = back ? modal_stack_container_back_button : nil
+        show_close = close_button.nil? ? dismissible : close_button
 
         render partial: "modal_stack/panel", locals: {
           content: body, back_button: back_html, wrapper_attrs: attrs,
+          title: title, show_close: show_close,
           size: size, variant: variant, dismissible: dismissible,
           side: side, width: width, height: height, transition: transition
         }

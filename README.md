@@ -279,8 +279,29 @@ options at the call site:
 ```
 
 `modal_stack_container` accepts `size:`, `variant:`, `side:`, `width:`,
-`height:`, `dismissible:`, and an `html: { class:, data:, ... }` Hash for
+`height:`, `dismissible:`, `title:`, `close_button:`, and an `html: { class:, data:, ... }` Hash for
 extra attributes on the wrapping `<div>`.
+
+Pass `title:` to render a `<header>` with an `<h2>` above the panel content.
+`close_button:` (default: inherits `dismissible:`) renders a `×` button wired to
+`modal-stack#pop` — locked layers (`dismissible: false`) get no close button by default:
+
+```erb
+<%# Dismissible — title + auto close button %>
+<%= modal_stack_container title: "Edit project", size: :md do %>
+  <%= render "form", project: @project %>
+<% end %>
+
+<%# Locked — title only, no × (close_button: defaults to false) %>
+<%= modal_stack_container title: "Are you sure?",
+                           variant: :confirmation,
+                           dismissible: false do %>
+  <button data-action="click->modal-stack#pop">Confirm</button>
+<% end %>
+
+<%# Explicit override %>
+<%= modal_stack_container title: "Info", close_button: false do %>…<% end %>
+```
 
 ### Stack-aware controllers
 
@@ -484,7 +505,7 @@ Injected into `ActionView::Base` by the engine — available in every view.
 | Helper                                            | Description |
 | ------------------------------------------------- | ----------- |
 | `modal_link_to(name, options, html_options)`      | Renders a `link_to` wired to push a layer when clicked. Accepts the modal options (`as:`, `side:`, `size:`, `width:`, `height:`, `dismissible:`) on top of standard `link_to` arguments. Falls back to plain `link_to` for Hotwire Native requests. |
-| `modal_stack_container(size:, variant:, side:, width:, height:, dismissible:, back:, transition:, html: {}) { ... }` | Wraps a panel view with the markup the JS runtime expects. `back: true` injects a back-button slot wired to `modal-stack#pathBack` (hidden by CSS at the first frame); `transition:` writes `data-modal-stack-transition` for host CSS hooks. |
+| `modal_stack_container(size:, variant:, side:, width:, height:, dismissible:, back:, transition:, title:, close_button:, html: {}) { ... }` | Wraps a panel view with the markup the JS runtime expects. `back: true` injects a back-button slot wired to `modal-stack#pathBack` (hidden by CSS at the first frame); `transition:` writes `data-modal-stack-transition` for host CSS hooks. `title:` renders a `<header>` with `<h2>`; `close_button:` (default: `dismissible:` value) renders a `×` close button. |
 | `modal_back_link(name = nil, **opts) { ... }`     | Renders a `<button>` wired to the `modal-stack-back-link` Stimulus controller. Pass `steps:` (default `1`) to walk back multiple frames in a single click — clamped at the first frame, never closes the layer. Block form supported for custom markup (e.g. `<%= modal_back_link(class: "btn") { "← Back" } %>`). |
 | `modal_stack_stylesheet_link_tag(**options)`      | Emits `<link rel="stylesheet">` for the configured preset (`modal_stack/tailwind_v4.css`, etc.). Returns an empty SafeBuffer when `css_provider = :none`. |
 | `modal_stack_dialog_tag(**html_options)`          | Emits the singleton `<dialog id="modal-stack-root" data-controller="modal-stack">`. Drop just before `</body>`. |
